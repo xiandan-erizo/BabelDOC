@@ -1,0 +1,29 @@
+services:
+  babeldoc-web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Provide OpenAI key here or at runtime: `OPENAI_API_KEY=sk-...`
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Optional: seed model/base_url/QPS into SystemSettings on first run
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      DEFAULT_QPS: ${DEFAULT_QPS:-4}
+    env_file:
+      - .env
+    volumes:
+      # Persist cache and outputs across runs (optional)
+      - babeldoc_cache:/root/.cache/babeldoc
+      # Persist runtime uploads/outputs and SQLite DB
+      - babeldoc_runtime:/app/web/runtime
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  babeldoc_cache:
+  babeldoc_runtime:

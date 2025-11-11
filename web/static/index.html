@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BabelDOC Web UI</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+      header { padding: 16px 24px; border-bottom: 1px solid #1f2937; }
+      main { max-width: 880px; margin: 0 auto; padding: 24px; }
+      .card { background: #0b1222; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; margin-bottom: 20px; }
+      label { display: block; margin: 10px 0 6px; font-weight: 600; }
+      input[type="text"], input[type="number"], select { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #334155; background: #0a0f1f; color: #e2e8f0; }
+      input[type="file"] { padding: 8px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      button { background: #2563eb; color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      .progress { margin-top: 12px; }
+      progress { width: 100%; height: 16px; }
+      .muted { color: #94a3b8; font-size: 14px; }
+      .links a { display: inline-block; margin-right: 10px; color: #93c5fd; }
+      .stage { font-size: 14px; margin-top: 6px; }
+      .checkboxes { display: flex; gap: 16px; }
+      nav a { color: #93c5fd; margin-right: 12px; }
+      .checkboxes label { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+      footer { padding: 24px; text-align: center; color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>BabelDOC Web UI</h1>
+      <div class="muted">上传 PDF，选择语言与模型，在线生成译文 PDF。</div>
+      <nav>
+        <a href="/">主页</a>
+        <a href="/history.html">任务</a>
+        <a href="/settings.html">设置</a>
+      </nav>
+    </header>
+    <main>
+      <div class="card">
+        <form id="form">
+          <label>PDF 文件</label>
+          <input id="file" type="file" accept="application/pdf" required />
+
+          <div class="row">
+            <div>
+              <label>源语言(lang_in)</label>
+              <input id="lang_in" type="text" value="en" />
+            </div>
+            <div>
+              <label>目标语言(lang_out)</label>
+              <input id="lang_out" type="text" value="zh" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label>QPS</label>
+              <input id="qps" type="number" min="1" value="4" />
+            </div>
+            <div></div>
+          </div>
+
+          <div class="checkboxes">
+            <label><input id="no_dual" type="checkbox" /> 不输出双语 PDF</label>
+            <label><input id="no_mono" type="checkbox" /> 不输出单语 PDF</label>
+          </div>
+
+          <div style="margin-top: 14px;">
+            <button id="submit" type="submit">开始翻译</button>
+          </div>
+        </form>
+
+        <div class="progress" id="progress" style="display: none;">
+          <div>总体进度</div>
+          <progress id="bar" max="100" value="0"></progress>
+          <div class="stage" id="stage"></div>
+        </div>
+      </div>
+
+      <div class="card" id="result" style="display: none;">
+        <h3>结果</h3>
+        <div class="links" id="links"></div>
+        <div class="muted" id="timing"></div>
+      </div>
+
+      <div class="card" id="error" style="display: none;">
+        <h3>错误</h3>
+        <div id="errmsg" style="color:#fecaca"></div>
+      </div>
+    </main>
+    <footer>
+      BabelDOC 前端演示 · 仅供开发测试
+    </footer>
+
+    <script>
+      const form = document.getElementById('form');
+      const fileEl = document.getElementById('file');
+      const langIn = document.getElementById('lang_in');
+      const langOut = document.getElementById('lang_out');
+      const qps = document.getElementById('qps');
+      const noDual = document.getElementById('no_dual');
+      const noMono = document.getElementById('no_mono');
+      const progress = document.getElementById('progress');
+      const bar = document.getElementById('bar');
+      const stage = document.getElementById('stage');
+      const result = document.getElementById('result');
+      const links = document.getElementById('links');
+      const timing = document.getElementById('timing');
+      const errorBox = document.getElementById('error');
+      const errmsg = document.getElementById('errmsg');
+      const submitBtn = document.getElementById('submit');
+
+      let pollTimer = null;
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errorBox.style.display = 'none';
+        result.style.display = 'none';
+        links.innerHTML = '';
+        timing.textContent = '';
+
+        const file = fileEl.files[0];
+        if (!file) {
+          alert('请选择 PDF 文件');
+          return;
+        }
+        submitBtn.disabled = true;
+        progress.style.display = 'block';
+        bar.value = 0;
+        stage.textContent = '';
+
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('lang_in', langIn.value.trim());
+        fd.append('lang_out', langOut.value.trim());
+        fd.append('qps', qps.value.trim());
+        fd.append('no_dual', noDual.checked ? 'true' : 'false');
+        fd.append('no_mono', noMono.checked ? 'true' : 'false');
+
+        try {
+          const resp = await fetch('/api/translate', { method: 'POST', body: fd });
+          if (!resp.ok) {
+            const data = await resp.json().catch(() => ({ detail: resp.statusText }));
+            throw new Error(data.detail || '创建任务失败');
+          }
+          const data = await resp.json();
+          const jobId = data.job_id;
+          startPolling(jobId);
+        } catch (err) {
+          progress.style.display = 'none';
+          submitBtn.disabled = false;
+          errorBox.style.display = 'block';
+          errmsg.textContent = err.message || String(err);
+        }
+      });
+
+      function startPolling(jobId) {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(async () => {
+          try {
+            const resp = await fetch(`/api/jobs/${jobId}`);
+            if (!resp.ok) throw new Error('查询任务失败');
+            const job = await resp.json();
+            bar.value = job.progress || 0;
+            const sc = job.stage_current ?? 0;
+            const st = job.stage_total ?? 0;
+            const stageName = job.stage || '';
+            stage.textContent = stageName ? `${stageName} (${sc}/${st})` : '';
+
+            if (job.status === 'finished') {
+              clearInterval(pollTimer);
+              submitBtn.disabled = false;
+              renderLinks(jobId, job.result || {});
+              progress.style.display = 'none';
+              result.style.display = 'block';
+            } else if (job.status === 'error') {
+              clearInterval(pollTimer);
+              submitBtn.disabled = false;
+              progress.style.display = 'none';
+              errorBox.style.display = 'block';
+              errmsg.textContent = job.error || '未知错误';
+            }
+          } catch (err) {
+            clearInterval(pollTimer);
+            submitBtn.disabled = false;
+            progress.style.display = 'none';
+            errorBox.style.display = 'block';
+            errmsg.textContent = err.message || String(err);
+          }
+        }, 1000);
+      }
+
+      function renderLinks(jobId, res) {
+        links.innerHTML = '';
+        const add = (label, kind, path) => {
+          if (!path) return;
+          const a = document.createElement('a');
+          a.href = `/api/jobs/${jobId}/download?kind=${kind}`;
+          a.textContent = label;
+          a.target = '_blank';
+          links.appendChild(a);
+        };
+        add('下载单语 PDF', 'mono', res.mono_pdf);
+        add('下载双语 PDF', 'dual', res.dual_pdf);
+        add('下载无水印单语', 'mono_no_wm', res.mono_no_wm);
+        add('下载无水印双语', 'dual_no_wm', res.dual_no_wm);
+        add('下载术语表 CSV', 'glossary', res.glossary_csv);
+        if (res.total_seconds) {
+          timing.textContent = `耗时：${res.total_seconds.toFixed ? res.total_seconds.toFixed(2) : res.total_seconds} 秒`;
+        }
+      }
+
+      // 主页精简化：移除历史展示，如需管理请访问设置页
+    </script>
+  </body>
+  </html>

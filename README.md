@@ -434,3 +434,32 @@ Everyone interacting in YADT and its sub-projects' codebases, issue trackers, ch
 >     *   If the document is identified as heavily scanned (e.g., >80% scanned pages) AND `auto_enable_ocr_workaround` is `true` (i.e., `translation_config.auto_enable_ocr_workaround` is true), the system will then attempt to set both `ocr_workaround` to `true` and `skip_scanned_detection` to `true`.
 >
 > This means that `--auto-enable-ocr-workaround` effectively gives the system control to enable OCR processing for scanned documents, potentially overriding manual settings for `--ocr-workaround` and `--skip_scanned_detection` based on its detection results. If the document is *not* detected as heavily scanned, then the initial `false` values for `ocr_workaround` and `skip_scanned_detection` (forced by `--auto-enable-ocr-workaround` at the `TranslationConfig` initialization stage) will remain in effect unless changed by other logic.
+## Web UI & Docker
+
+For a simple web interface to upload PDFs and get translated outputs, this repository includes a small FastAPI server and static frontend under `web/`.
+
+- Local run (requires Python ≥3.10 and dependencies):
+
+```bash
+uvicorn web.server.main:app --reload --port 8000
+# Open http://localhost:8000/ and provide your OpenAI API Key
+```
+
+- Docker run:
+
+```bash
+# build
+docker build -t babeldoc-web .
+
+# run (set your OpenAI key via env)
+docker run --rm -p 8000:8000 -e OPENAI_API_KEY=sk-xxxx babeldoc-web
+# then open http://localhost:8000/
+```
+
+- docker-compose:
+
+```bash
+OPENAI_API_KEY=sk-xxxx docker compose up --build
+```
+
+The web UI uses only the OpenAI translator for now. Advanced CLI options (glossary files, split strategies, layout RPC, etc.) are not exposed in the demo UI but can be added if needed.

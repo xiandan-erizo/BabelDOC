@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BabelDOC 设置</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+      header { padding: 16px 24px; border-bottom: 1px solid #1f2937; }
+      main { max-width: 880px; margin: 0 auto; padding: 24px; }
+      .card { background: #0b1222; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; margin-bottom: 20px; }
+      label { display: block; margin: 10px 0 6px; font-weight: 600; }
+      input[type="text"], input[type="number"], input[type="password"] { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #334155; background: #0a0f1f; color: #e2e8f0; }
+      button { background: #2563eb; color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      .muted { color: #94a3b8; font-size: 14px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      nav a { color: #93c5fd; margin-right: 12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>系统设置</h1>
+      <div class="muted">敏感配置仅在后端保存，不会在前端显示。</div>
+      <nav>
+        <a href="/">主页</a>
+        <a href="/history.html">任务</a>
+        <a href="/settings.html">设置</a>
+      </nav>
+    </header>
+    <main>
+      <div class="card">
+        <form id="form">
+          <div class="row">
+            <div>
+              <label>默认 QPS（仅展示，可覆盖）</label>
+              <input id="default_qps" type="number" min="1" value="4" />
+              <div class="muted">从后端读取当前默认值；留空则不更新。</div>
+            </div>
+            <div></div>
+          </div>
+
+          <label>OpenAI Base URL</label>
+          <input id="base_url" type="text" placeholder="例如：https://api.openai.com/v1" />
+          <div class="muted">不会显示当前值；填写后将更新后端设置。</div>
+
+          <label>OpenAI 模型</label>
+          <input id="model" type="text" placeholder="例如：gpt-4o-mini" />
+          <div class="muted">不会显示当前值；填写后将更新后端设置。</div>
+
+          <label>OpenAI API Key</label>
+          <input id="api_key" type="password" placeholder="sk-..." />
+          <div class="muted">不会显示当前值；此处仅用于更新，提交后保存在后端。</div>
+
+          <div style="margin-top: 14px;">
+            <button id="submit" type="submit">保存设置</button>
+            <span id="status" class="muted" style="margin-left: 12px;"></span>
+          </div>
+        </form>
+      </div>
+    </main>
+    <footer>
+      BabelDOC 设置页 · 仅供内部管理
+    </footer>
+
+    <script>
+      const form = document.getElementById('form');
+      const defaultQpsEl = document.getElementById('default_qps');
+      const baseUrlEl = document.getElementById('base_url');
+      const modelEl = document.getElementById('model');
+      const apiKeyEl = document.getElementById('api_key');
+      const submitBtn = document.getElementById('submit');
+      const statusEl = document.getElementById('status');
+
+      async function loadPublicSettings() {
+        try {
+          const resp = await fetch('/api/settings');
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (typeof data.default_qps === 'number') {
+            defaultQpsEl.value = String(data.default_qps);
+          }
+        } catch (e) {}
+      }
+
+      loadPublicSettings();
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        submitBtn.disabled = true;
+        statusEl.textContent = '';
+
+        const payload = {};
+        const qpsVal = defaultQpsEl.value.trim();
+        if (qpsVal) payload.default_qps = Number(qpsVal);
+        const baseUrlVal = baseUrlEl.value.trim();
+        if (baseUrlVal) payload.openai_base_url = baseUrlVal;
+        const modelVal = modelEl.value.trim();
+        if (modelVal) payload.openai_model = modelVal;
+        const keyVal = apiKeyEl.value.trim();
+        if (keyVal) payload.openai_api_key = keyVal;
+
+        try {
+          const resp = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!resp.ok) throw new Error('保存失败');
+          const data = await resp.json();
+          statusEl.textContent = `已保存，更新时间：${data.updated_at || ''}`;
+          apiKeyEl.value = '';
+        } catch (err) {
+          statusEl.textContent = err.message || String(err);
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+  </html>

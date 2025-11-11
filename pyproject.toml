@@ -41,7 +41,7 @@ dependencies = [
     "tenacity>=9.0.0",
     "scikit-image>=0.25.2",
     "freetype-py>=2.5.1",
-    "tiktoken>=0.9.0",
+    "tiktoken>=0.11.0",
     "python-levenshtein>=0.27.1",
     "opencv-python-headless>=4.10.0.84",
     "rapidocr-onnxruntime>=1.4.4",
@@ -52,6 +52,9 @@ dependencies = [
     "scipy>=1.15.3",
     "uharfbuzz>=0.50.2",
     "scikit-learn>=1.7.1",
+    "fastapi>=0.114.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
@@ -190,3 +193,12 @@ reportGeneralTypeIssues = false
 reportUnknownVariableType = false
 reportMissingParameterType = false
 reportUnknownParameterType = false
+
+
+[[index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true

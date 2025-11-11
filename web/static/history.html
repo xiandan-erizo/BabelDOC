@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BabelDOC 任务历史</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+      header { padding: 16px 24px; border-bottom: 1px solid #1f2937; }
+      main { max-width: 1000px; margin: 0 auto; padding: 24px; }
+      .card { background: #0b1222; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; margin-bottom: 20px; }
+      .muted { color: #94a3b8; font-size: 14px; }
+      nav a { color: #93c5fd; margin-right: 12px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border-bottom: 1px solid #1f2937; padding: 10px; text-align: left; }
+      th { color: #cbd5e1; font-weight: 600; }
+      .status { font-weight: 600; }
+      .status.running { color: #fbbf24; }
+      .status.finished { color: #34d399; }
+      .status.error { color: #f87171; }
+      .controls { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+      input[type="number"] { width: 100px; padding: 8px 10px; border-radius: 8px; border: 1px solid #334155; background: #0a0f1f; color: #e2e8f0; }
+      button { background: #2563eb; color: white; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+      .links a { display: inline-block; margin-right: 8px; color: #93c5fd; }
+      progress { width: 140px; height: 14px; vertical-align: middle; }
+      .lang { color: #a5b4fc; }
+      footer { padding: 24px; text-align: center; color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>任务历史</h1>
+      <div class="muted">展示最近任务状态与可用下载链接。</div>
+      <nav>
+        <a href="/">主页</a>
+        <a href="/history.html">任务</a>
+        <a href="/settings.html">设置</a>
+      </nav>
+    </header>
+    <main>
+      <div class="card">
+        <div class="controls">
+          <label for="limit">显示数量</label>
+          <input id="limit" type="number" min="1" max="200" value="20" />
+          <label><input id="auto" type="checkbox" /> 自动刷新</label>
+          <button id="refresh">刷新</button>
+          <span id="status" class="muted"></span>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>创建时间</th>
+              <th>任务 ID</th>
+              <th>语言</th>
+              <th>状态</th>
+              <th>进度</th>
+              <th>下载</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </main>
+    <footer>
+      BabelDOC 任务页 · 仅供开发测试
+    </footer>
+
+    <script>
+      const tbody = document.getElementById('tbody');
+      const limitEl = document.getElementById('limit');
+      const autoEl = document.getElementById('auto');
+      const refreshBtn = document.getElementById('refresh');
+      const statusEl = document.getElementById('status');
+      let timer = null;
+
+      async function loadJobs() {
+        const limit = Number(limitEl.value || 20);
+        statusEl.textContent = '';
+        try {
+          const resp = await fetch(`/api/jobs?limit=${Math.max(1, Math.min(limit, 200))}`);
+          if (!resp.ok) throw new Error('加载失败');
+          const list = await resp.json();
+          render(list);
+          statusEl.textContent = `已加载 ${list.length} 条记录`;
+        } catch (err) {
+          statusEl.textContent = err.message || String(err);
+        }
+      }
+
+      function render(list) {
+        tbody.innerHTML = '';
+        for (const j of list) {
+          const tr = document.createElement('tr');
+          const created = j.created_at || '';
+          const jobId = j.job_id || '';
+          const lang = `${j.lang_in || ''} → ${j.lang_out || ''}`;
+          const status = j.status || '';
+          const progressVal = (typeof j.progress === 'number') ? j.progress : 0;
+          const results = j.results || {};
+
+          const tdCreated = document.createElement('td'); tdCreated.textContent = created;
+          const tdId = document.createElement('td'); tdId.textContent = jobId;
+          const tdLang = document.createElement('td'); tdLang.innerHTML = `<span class="lang">${lang}</span>`;
+          const tdStatus = document.createElement('td'); tdStatus.innerHTML = `<span class="status ${status}">${status}</span>`;
+          const tdProg = document.createElement('td');
+          const prog = document.createElement('progress'); prog.max = 100; prog.value = progressVal || 0; tdProg.appendChild(prog);
+          const tdLinks = document.createElement('td');
+          const add = (label, kind, ok) => {
+            if (!ok) return;
+            const a = document.createElement('a');
+            a.href = `/api/jobs/${jobId}/download?kind=${kind}`;
+            a.textContent = label;
+            a.target = '_blank';
+            tdLinks.appendChild(a);
+          };
+          add('单语 PDF', 'mono', !!results.mono);
+          add('双语 PDF', 'dual', !!results.dual);
+          add('无水印单语', 'mono_no_wm', !!results.mono_no_wm);
+          add('无水印双语', 'dual_no_wm', !!results.dual_no_wm);
+          add('术语表 CSV', 'glossary', !!results.glossary);
+
+          tr.appendChild(tdCreated);
+          tr.appendChild(tdId);
+          tr.appendChild(tdLang);
+          tr.appendChild(tdStatus);
+          tr.appendChild(tdProg);
+          tr.appendChild(tdLinks);
+          tbody.appendChild(tr);
+        }
+      }
+
+      function startAuto() {
+        if (timer) clearInterval(timer);
+        if (autoEl.checked) {
+          timer = setInterval(loadJobs, 2000);
+        }
+      }
+
+      refreshBtn.addEventListener('click', loadJobs);
+      autoEl.addEventListener('change', () => { startAuto(); });
+      limitEl.addEventListener('change', () => { loadJobs(); startAuto(); });
+
+      loadJobs();
+      startAuto();
+    </script>
+  </body>
+  </html>
