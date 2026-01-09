@@ -93,26 +93,55 @@ class Glossary:
             self.normalized_lookup[normalized_key] = (entry.source, entry.target)
             self.id_lookup.append((entry.source, entry.target))
 
-            hs_pattern.append((re.escape(entry.source).encode("utf-8"), idx))
+            # Escape and encode the pattern
+            escaped_pattern = re.escape(entry.source).encode("utf-8")
+            
+            # Double check: skip if pattern is empty after escaping
+            if not escaped_pattern:
+                logger.warning(
+                    f"Skipping entry with empty pattern after escape: source='{entry.source}'"
+                )
+                continue
+            
+            hs_pattern.append((escaped_pattern, idx))
+
+        # If no valid patterns, skip database creation
+        if not hs_pattern:
+            logger.warning(f"No valid patterns for glossary {self.name}, skipping hs_db creation")
+            self.hs_dbs = None
+            return
 
         chunk_size = 20000
         for i, pattern_chunk in enumerate(
             batched(hs_pattern, chunk_size, strict=False)
         ):
             logger.debug(
-                f"building hs_db chunk {i + 1} / {len(self.entries) // chunk_size + 1}"
+                f"building hs_db chunk {i + 1} / {len(hs_pattern) // chunk_size + 1}"
             )
             expressions, ids = zip(*pattern_chunk, strict=False)
+            
+            # Log first few patterns for debugging
+            if i == 0:
+                sample_patterns = [expr.decode('utf-8', errors='replace') for expr in expressions[:3]]
+                logger.debug(f"Sample patterns: {sample_patterns}")
 
             hs_db = hyperscan.Database()
-            hs_db.compile(
-                expressions=expressions,
-                ids=ids,
-                elements=len(pattern_chunk),
-                flags=hyperscan.HS_FLAG_CASELESS | hyperscan.HS_FLAG_SINGLEMATCH | hyperscan.HS_FLAG_ALLOWEMPTY,
-                # | hyperscan.HS_FLAG_UTF8
-                # | hyperscan.HS_FLAG_UCP,
-            )
+            try:
+                hs_db.compile(
+                    expressions=expressions,
+                    ids=ids,
+                    elements=len(pattern_chunk),
+                    flags=hyperscan.HS_FLAG_CASELESS | hyperscan.HS_FLAG_SINGLEMATCH | hyperscan.HS_FLAG_ALLOWEMPTY,
+                    # | hyperscan.HS_FLAG_UTF8
+                    # | hyperscan.HS_FLAG_UCP,
+                )
+            except Exception as e:
+                logger.error(f"Failed to compile hyperscan database for glossary {self.name}")
+                logger.error(f"Number of patterns: {len(expressions)}")
+                # Log problematic patterns
+                for j, expr in enumerate(expressions[:10]):
+                    logger.error(f"Pattern {j}: {expr} (length: {len(expr)})")
+                raise
             self.hs_dbs.append(hs_db)
 
         end = time.time()
