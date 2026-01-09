@@ -41,10 +41,15 @@ class Glossary:
     def __init__(self, name: str, entries: list[GlossaryEntry]):
         self.name = name
 
-        # Deduplicate entries based on normalized source
+        # Deduplicate entries based on normalized source and filter out empty sources
         unique_entries = []
         seen_normalized_sources = set()
         for entry in entries:
+            # Skip empty source terms
+            if not entry.source or not entry.source.strip():
+                logger.warning(f"Skipping empty source term in glossary {name}")
+                continue
+            
             normalized_source = self.normalize_source(entry.source)
             if normalized_source not in seen_normalized_sources:
                 unique_entries.append(entry)
