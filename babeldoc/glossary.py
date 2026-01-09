@@ -104,7 +104,7 @@ class Glossary:
                 expressions=expressions,
                 ids=ids,
                 elements=len(pattern_chunk),
-                flags=hyperscan.HS_FLAG_CASELESS | hyperscan.HS_FLAG_SINGLEMATCH,
+                flags=hyperscan.HS_FLAG_CASELESS | hyperscan.HS_FLAG_SINGLEMATCH | hyperscan.HS_FLAG_ALLOWEMPTY,
                 # | hyperscan.HS_FLAG_UTF8
                 # | hyperscan.HS_FLAG_UCP,
             )
