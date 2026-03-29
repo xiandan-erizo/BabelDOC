@@ -218,7 +218,7 @@ class OpenAITranslator(BaseTranslator):
     ):
         super().__init__(lang_in, lang_out, ignore_cache)
         self.options = {"temperature": 0}  # 随机采样可能会打断公式标记
-        self.extra_body = {}
+        self.extra_body = {"enable_thinking": False}
         # if 'gpt-5' in model and 'gpt-5-chat' not in model:
         #     self.extra_body['reasoning'] = {
         #         "effort": "minimal"
