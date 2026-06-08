@@ -190,13 +190,13 @@ class BaseTranslator(ABC):
     def __str__(self):
         return f"{self.name} {self.lang_in} {self.lang_out} {self.model}"
 
-    def get_rich_text_left_placeholder(self, placeholder_id: int):
+    def get_rich_text_left_placeholder(self, placeholder_id: int | str):
         return f"<b{placeholder_id}>"
 
-    def get_rich_text_right_placeholder(self, placeholder_id: int):
+    def get_rich_text_right_placeholder(self, placeholder_id: int | str):
         return f"</b{placeholder_id}>"
 
-    def get_formular_placeholder(self, placeholder_id: int):
+    def get_formular_placeholder(self, placeholder_id: int | str):
         return self.get_rich_text_left_placeholder(placeholder_id)
 
 
@@ -215,6 +215,7 @@ class OpenAITranslator(BaseTranslator):
         enable_json_mode_if_requested=False,
         send_dashscope_header=False,
         send_temperature=True,
+        reasoning=None,
     ):
         super().__init__(lang_in, lang_out, ignore_cache)
         self.options = {"temperature": 0}  # 随机采样可能会打断公式标记
@@ -224,6 +225,7 @@ class OpenAITranslator(BaseTranslator):
         #         "effort": "minimal"
         #     }
         #     self.add_cache_impact_parameters("reasoning-effort", 'minimal')
+        self.reasoning = reasoning
         self.client = openai.OpenAI(
             base_url=base_url,
             api_key=api_key,
@@ -231,7 +233,7 @@ class OpenAITranslator(BaseTranslator):
                 limits=httpx.Limits(
                     max_connections=None, max_keepalive_connections=None
                 ),
-                timeout=60,  # Set a reasonable timeout
+                timeout=600,
             ),
         )
         if send_temperature:
@@ -242,6 +244,9 @@ class OpenAITranslator(BaseTranslator):
         self.send_temperature = send_temperature
         self.add_cache_impact_parameters("model", self.model)
         self.add_cache_impact_parameters("prompt", self.prompt(""))
+        if self.reasoning:
+            self.extra_body["reasoning"] = {"effort": self.reasoning}
+            self.add_cache_impact_parameters("reasoning", self.reasoning)
         if self.enable_json_mode_if_requested:
             self.add_cache_impact_parameters(
                 "enable_json_mode_if_requested", self.enable_json_mode_if_requested
@@ -339,22 +344,28 @@ class OpenAITranslator(BaseTranslator):
                 self.prompt_token_count.inc(response.usage.prompt_tokens)
             if response.usage and response.usage.completion_tokens:
                 self.completion_token_count.inc(response.usage.completion_tokens)
-            if response.usage and (
-                hit_count := getattr(response.usage, "prompt_cache_hit_tokens", 0)
+            # Support both response.usage.prompt_cache_hit_tokens and response.prompt_tokens_details.cached_tokens
+            hit_count = 0
+            if response.usage and hasattr(response.usage, "prompt_cache_hit_tokens"):
+                hit_count = getattr(response.usage, "prompt_cache_hit_tokens", 0)
+            if hasattr(response, "prompt_tokens_details") and getattr(
+                response.prompt_tokens_details, "cached_tokens", 0
             ):
+                hit_count += getattr(response.prompt_tokens_details, "cached_tokens", 0)
+            if hit_count:
                 self.cache_hit_prompt_token_count.inc(hit_count)
         except Exception as e:
             logger.exception("Error updating token count")
 
-    def get_formular_placeholder(self, placeholder_id: int):
+    def get_formular_placeholder(self, placeholder_id: int | str):
         return "{v" + str(placeholder_id) + "}", f"{{\\s*v\\s*{placeholder_id}\\s*}}"
         return "{{" + str(placeholder_id) + "}}"
 
-    def get_rich_text_left_placeholder(self, placeholder_id: int):
+    def get_rich_text_left_placeholder(self, placeholder_id: int | str):
         return (
             f"<style id='{placeholder_id}'>",
             f"<\\s*style\\s*id\\s*=\\s*'\\s*{placeholder_id}\\s*'\\s*>",
         )
 
-    def get_rich_text_right_placeholder(self, placeholder_id: int):
+    def get_rich_text_right_placeholder(self, placeholder_id: int | str):
         return "</style>", r"<\s*\/\s*style\s*>"

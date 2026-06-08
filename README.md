@@ -1,7 +1,4 @@
-<!-- # Yet Another Document Translator -->
-
 <div align="center">
-<!-- <img src="https://s.immersivetranslate.com/assets/r2-uploads/images/babeldoc-banner.png" width="320px"  alt="YADT"/> -->
 
 <br/>
 
@@ -35,7 +32,7 @@
 PDF scientific paper translation and bilingual comparison library.
 
 - **Online Service**: Beta version launched [Immersive Translate - BabelDOC](https://app.immersivetranslate.com/babel-doc/) Free usage quota is available; please refer to the FAQ section on the page for details.
-- **Self-deployment**: [PDFMathTranslate 2.0](https://github.com/PDFMathTranslate/PDFMathTranslate-next) support for BabelDOC, available for self-deployment + WebUI with more translation services.
+- **Self-deployment**: [PDFMathTranslate-next](https://github.com/PDFMathTranslate-next/PDFMathTranslate-next) support for BabelDOC, available for self-deployment + WebUI with more translation services.
 - Provides a simple [command line interface](#getting-started).
 - Provides a [Python API](#python-api).
 - Mainly designed to be embedded into other programs, but can also be used directly for simple translation tasks.
@@ -64,11 +61,11 @@ See details: [EN](https://github.com/funstory-ai/jobs) | [ZH](https://github.com
 
 ### Install from PyPI
 
-We recommend using the Tool feature of [uv](https://github.com/astral-sh/uv) to install yadt.
+We recommend using the Tool feature of [uv](https://github.com/astral-sh/uv) to install BabelDOC.
 
 1. First, you need to refer to [uv installation](https://github.com/astral-sh/uv#installation) to install uv and set up the `PATH` environment variable as prompted.
 
-2. Use the following command to install yadt:
+2. Use the following command to install BabelDOC:
 
 ```bash
 uv tool install --python 3.12 BabelDOC
@@ -91,7 +88,7 @@ We still recommend using [uv](https://github.com/astral-sh/uv) to manage virtual
 
 1. First, you need to refer to [uv installation](https://github.com/astral-sh/uv#installation) to install uv and set up the `PATH` environment variable as prompted.
 
-2. Use the following command to install yadt:
+2. Use the following command to install BabelDOC:
 
 ```bash
 # clone the project
@@ -195,6 +192,7 @@ uv run babeldoc --files example.pdf --files example2.pdf --openai --openai-model
 - `--openai`: Use OpenAI for translation (default: False)
 - `--custom-system-prompt`: Custom system prompt for translation.
 - `--add-formula-placehold-hint`: Add formula placeholder hint for translation. (Currently not recommended, it may affect translation quality, default: False)
+- `--disable-same-text-fallback`: Disable fallback translation when LLM output matches input text. (default: False)
 - `--pool-max-workers`: Maximum number of worker threads for internal task processing pools. If not specified, defaults to QPS value. This parameter directly sets the worker count, replacing previous QPS-based dynamic calculations.
 - `--no-auto-extract-glossary`: Disable automatic term extraction. If this flag is present, the step is skipped. Defaults to enabled.
 
@@ -212,6 +210,7 @@ uv run babeldoc --files example.pdf --files example2.pdf --openai --openai-model
 - `--openai-base-url`: Base URL for OpenAI API
 - `--openai-api-key`: API key for OpenAI service
 - `--enable-json-mode-if-requested`: Enable JSON mode for OpenAI requests (default: False)
+- `--term-pool-max-workers`: Maximum number of worker threads dedicated to automatic term extraction. If not specified, this defaults to the value of `--pool-max-workers`, which itself defaults to the QPS value when unset.
 
 > [!TIP]
 >
@@ -233,7 +232,7 @@ uv run babeldoc --files example.pdf --files example2.pdf --openai --openai-model
 ### Output Control
 
 - `--output`, `-o`: Output directory for translated files. If not set, use current working directory.
-- `--debug`: Enable debug logging level and export detailed intermediate results in `~/.cache/yadt/working`.
+- `--debug`: Enable debug logging level and export detailed intermediate results in `~/.cache/babeldoc/working`.
 - `--report-interval`: Progress report interval in seconds (default: 0.1).
 
 ### General Options
@@ -304,6 +303,7 @@ openai-model = "gpt-4o-mini"
 openai-base-url = "https://api.openai.com/v1"
 openai-api-key = "your-api-key-here"
 enable-json-mode-if-requested = false  # Enable JSON mode when requested (default: false)
+disable_same_text_fallback = false # Disable fallback translation when LLM output matches input text (default: false)
 pool-max-workers = 8  # Maximum worker threads for task processing (defaults to QPS value if not set)
 
 # Glossary Options (Optional)
@@ -335,7 +335,7 @@ There are a lot projects and teams working on to make document editing and trans
 - [mathpix](https://mathpix.com/)
 - [Doc2X](https://doc2x.noedgeai.com/)
 - [minerU](https://github.com/opendatalab/MinerU)
-- [PDFMathTranslate](https://github.com/funstory-ai/yadt)
+- [PDFMathTranslate](https://github.com/PDFMathTranslate/PDFMathTranslate)
 
 There are also some solutions to solve specific parts of the problem like:
 
@@ -399,15 +399,25 @@ This project uses a combination of [Semantic Versioning](https://semver.org/) an
 
 ## How to Contribute
 
-We encourage you to contribute to YADT! Please check out the [CONTRIBUTING](https://github.com/funstory-ai/yadt/blob/main/docs/CONTRIBUTING.md) guide.
+BabelDOC is currently developed in a maintainer-led mode. Bug reports,
+reproducible PDFs, documentation fixes, and small compatibility fixes are
+welcome. For changes to parsing, rendering, translation, or service integration
+behavior, please open an issue for discussion before submitting a pull request.
 
-Everyone interacting in YADT and its sub-projects' codebases, issue trackers, chat rooms, and mailing lists is expected to follow the YADT [Code of Conduct](https://github.com/funstory-ai/yadt/blob/main/docs/CODE_OF_CONDUCT.md).
+Everyone interacting in BabelDOC and its sub-projects' codebases, issue trackers, chat rooms, and mailing lists is expected to follow the BabelDOC [Code of Conduct](https://github.com/funstory-ai/BabelDOC/blob/main/docs/CODE_OF_CONDUCT.md).
 
 [Immersive Translation](https://immersivetranslate.com) sponsors monthly Pro membership redemption codes for active contributors to this project, see details at: [CONTRIBUTOR_REWARD.md](https://github.com/funstory-ai/BabelDOC/blob/main/docs/CONTRIBUTOR_REWARD.md)
 
 ## Acknowledgements
 
-- [PDFMathTranslate](https://github.com/Byaidu/PDFMathTranslate)
+BabelDOC is still at an early stage of development, and many parts are not as
+polished as we would like yet. We sincerely appreciate every bug report,
+criticism, suggestion, reproducible PDF, downstream integration experience, and
+contribution from people working on BabelDOC and related upstream/downstream
+projects. We will keep iterating on BabelDOC, fixing bugs, and making it better
+step by step.
+
+- [PDFMathTranslate](https://github.com/PDFMathTranslate/PDFMathTranslate)
 - [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO)
 - [pdfminer](https://github.com/pdfminer/pdfminer.six)
 - [PyMuPDF](https://github.com/pymupdf/PyMuPDF)

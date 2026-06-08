@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import json
 import logging
 import threading
 import zipfile
@@ -7,6 +8,8 @@ from pathlib import Path
 
 import httpx
 from babeldoc.assets import embedding_assets_metadata
+from babeldoc.assets.embedding_assets_metadata import CMAP_METADATA
+from babeldoc.assets.embedding_assets_metadata import CMAP_URL_BY_UPSTREAM
 from babeldoc.assets.embedding_assets_metadata import DOC_LAYOUT_ONNX_MODEL_URL
 from babeldoc.assets.embedding_assets_metadata import (
     DOCLAYOUT_YOLO_DOCSTRUCTBENCH_IMGSZ1024ONNX_SHA3_256,
@@ -14,10 +17,6 @@ from babeldoc.assets.embedding_assets_metadata import (
 from babeldoc.assets.embedding_assets_metadata import EMBEDDING_FONT_METADATA
 from babeldoc.assets.embedding_assets_metadata import FONT_METADATA_URL
 from babeldoc.assets.embedding_assets_metadata import FONT_URL_BY_UPSTREAM
-from babeldoc.assets.embedding_assets_metadata import (
-    TABLE_DETECTION_RAPIDOCR_MODEL_SHA3_256,
-)
-from babeldoc.assets.embedding_assets_metadata import TABLE_DETECTION_RAPIDOCR_MODEL_URL
 from babeldoc.assets.embedding_assets_metadata import TIKTOKEN_CACHES
 from babeldoc.const import get_cache_file_path
 from tenacity import retry
@@ -27,23 +26,41 @@ from tenacity import wait_exponential
 logger = logging.getLogger(__name__)
 
 
+_FASTEST_FONT_UPSTREAM_LOCK = asyncio.Lock()
+_FASTEST_FONT_UPSTREAM: str | None = None
+_FASTEST_FONT_METADATA: dict | None = None
+
+
 class ResultContainer:
     def __init__(self):
         self.result = None
+        self.exception: BaseException | None = None
 
     def set_result(self, result):
         self.result = result
+
+    def set_exception(self, exc: BaseException):
+        self.exception = exc
 
 
 def run_in_another_thread(coro):
     result_container = ResultContainer()
 
     def _wrapper():
-        result_container.set_result(asyncio.run(coro))
+        try:
+            result_container.set_result(asyncio.run(coro))
+        except BaseException as exc:  # noqa: BLE001
+            result_container.set_exception(exc)
 
     thread = threading.Thread(target=_wrapper)
     thread.start()
     thread.join()
+    if result_container.exception is not None:
+        msg = (
+            "asset coroutine failed: "
+            f"{type(result_container.exception).__name__}: {result_container.exception}"
+        )
+        raise RuntimeError(msg) from result_container.exception
     return result_container.result
 
 
@@ -140,9 +157,10 @@ async def get_font_metadata(
     return upstream, response.json()
 
 
-async def get_fastest_upstream_for_font(
-    client: httpx.AsyncClient | None = None, exclude_upstream: list[str] = None
-):
+async def _get_fastest_upstream_for_font_internal(
+    client: httpx.AsyncClient | None = None, exclude_upstream: list[str] | None = None
+) -> tuple[str | None, dict | None]:
+    """Find the fastest upstream for font metadata without using cached result."""
     tasks: list[asyncio.Task[tuple[str, dict]]] = []
     for upstream in FONT_METADATA_URL:
         if exclude_upstream and upstream in exclude_upstream:
@@ -159,6 +177,34 @@ async def get_fastest_upstream_for_font(
             logger.exception(f"Error getting font metadata: {e}")
     logger.error("All upstreams failed")
     return None, None
+
+
+async def get_fastest_upstream_for_font(
+    client: httpx.AsyncClient | None = None, exclude_upstream: list[str] | None = None
+) -> tuple[str | None, dict | None]:
+    """Get the fastest upstream for font metadata with cached result.
+
+    The cached upstream is only used when exclude_upstream is None.
+    """
+    global _FASTEST_FONT_UPSTREAM, _FASTEST_FONT_METADATA
+
+    if exclude_upstream is None and _FASTEST_FONT_UPSTREAM is not None:
+        return _FASTEST_FONT_UPSTREAM, _FASTEST_FONT_METADATA
+
+    if exclude_upstream is not None:
+        # Do not use or update cache when exclude_upstream is provided.
+        return await _get_fastest_upstream_for_font_internal(client, exclude_upstream)
+
+    async with _FASTEST_FONT_UPSTREAM_LOCK:
+        if _FASTEST_FONT_UPSTREAM is not None:
+            return _FASTEST_FONT_UPSTREAM, _FASTEST_FONT_METADATA
+
+        upstream, metadata = await _get_fastest_upstream_for_font_internal(client)
+        if upstream is not None:
+            _FASTEST_FONT_UPSTREAM = upstream
+            _FASTEST_FONT_METADATA = metadata
+            logger.info(f"Fastest font upstream determined: {upstream}")
+        return upstream, metadata
 
 
 async def get_fastest_upstream_for_model(client: httpx.AsyncClient | None = None):
@@ -211,23 +257,10 @@ async def get_doclayout_onnx_model_path_async(client: httpx.AsyncClient | None =
 async def get_table_detection_rapidocr_model_path_async(
     client: httpx.AsyncClient | None = None,
 ):
-    onnx_path = get_cache_file_path("ch_PP-OCRv4_det_infer.onnx", "models")
-    if verify_file(onnx_path, TABLE_DETECTION_RAPIDOCR_MODEL_SHA3_256):
-        return onnx_path
-
-    logger.info("table detection rapidocr model not found or corrupted, downloading...")
-    fastest_upstream, _ = await get_fastest_upstream_for_model(client)
-    if fastest_upstream is None:
-        logger.error("Failed to get fastest upstream")
-        exit(1)
-
-    url = TABLE_DETECTION_RAPIDOCR_MODEL_URL[fastest_upstream]
-
-    await download_file(client, url, onnx_path, TABLE_DETECTION_RAPIDOCR_MODEL_SHA3_256)
-    logger.info(
-        f"Download table detection rapidocr model from {fastest_upstream} success"
-    )
-    return onnx_path
+    _ = client
+    dummy_path = get_cache_file_path("rapidocr-retired-dummy.txt", "models")
+    dummy_path.write_text("RapidOCR table detection is retired.\n", encoding="utf-8")
+    return dummy_path
 
 
 def get_doclayout_onnx_model_path():
@@ -289,6 +322,72 @@ def get_font_and_metadata(font_file_name: str):
     return run_coro(get_font_and_metadata_async(font_file_name))
 
 
+async def get_cmap_file_path_async(
+    name: str, client: httpx.AsyncClient | None = None
+) -> Path:
+    """Get cached cmap file path, downloading it if necessary."""
+    if name.endswith(".json"):
+        file_name = name
+    else:
+        file_name = f"{name}.json"
+
+    if file_name not in CMAP_METADATA:
+        logger.critical(f"CMap {file_name} not found in CMAP_METADATA")
+        exit(1)
+
+    meta = CMAP_METADATA[file_name]
+    cache_file_path = get_cache_file_path(file_name, "cmap")
+    if verify_file(cache_file_path, meta["sha3_256"]):
+        return cache_file_path
+
+    logger.info(f"CMap {cache_file_path} not found or corrupted, downloading...")
+    await download_cmap_file_async(file_name, client)
+    if not verify_file(cache_file_path, meta["sha3_256"]):
+        logger.critical(f"Failed to verify downloaded cmap file: {cache_file_path}")
+        exit(1)
+    return cache_file_path
+
+
+async def download_cmap_file_async(
+    file_name: str, client: httpx.AsyncClient | None = None
+) -> Path:
+    """Download a single cmap file to cache directory."""
+    if file_name not in CMAP_METADATA:
+        logger.critical(f"CMap {file_name} not found in CMAP_METADATA")
+        exit(1)
+
+    fastest_upstream, _ = await get_fastest_upstream_for_font(client)
+    if fastest_upstream is None:
+        logger.critical("Failed to get fastest upstream for cmap")
+        exit(1)
+
+    if fastest_upstream not in CMAP_URL_BY_UPSTREAM:
+        logger.critical(f"Invalid fastest upstream for cmap: {fastest_upstream}")
+        exit(1)
+
+    url = CMAP_URL_BY_UPSTREAM[fastest_upstream](file_name)
+    cache_file_path = get_cache_file_path(file_name, "cmap")
+    sha3_256 = CMAP_METADATA[file_name]["sha3_256"]
+    await download_file(client, url, cache_file_path, sha3_256)
+    return cache_file_path
+
+
+async def get_cmap_data_async(
+    name: str, client: httpx.AsyncClient | None = None
+) -> dict:
+    """Load cmap json data from cached file, downloading it if necessary."""
+    path = await get_cmap_file_path_async(name, client)
+    return json.loads(path.read_text())
+
+
+def get_cmap_file_path(name: str):
+    return run_coro(get_cmap_file_path_async(name))
+
+
+def get_cmap_data(name: str):
+    return run_coro(get_cmap_data_async(name))
+
+
 def get_font_family(lang_code: str):
     font_family = embedding_assets_metadata.get_font_family(lang_code)
     return font_family
@@ -322,6 +421,31 @@ async def download_all_fonts_async(client: httpx.AsyncClient | None = None):
     await asyncio.gather(*font_tasks)
 
 
+async def download_all_cmaps_async(client: httpx.AsyncClient | None = None):
+    """Download all cmap files defined in CMAP_METADATA."""
+    for cmap_file_name, meta in CMAP_METADATA.items():
+        if not verify_file(
+            get_cache_file_path(cmap_file_name, "cmap"),
+            meta["sha3_256"],
+        ):
+            break
+    else:
+        logger.debug("All cmaps are already downloaded")
+        return
+
+    fastest_upstream, _ = await get_fastest_upstream_for_font(client)
+    if fastest_upstream is None:
+        logger.error("Failed to get fastest upstream for cmap")
+        exit(1)
+    logger.info(f"Downloading cmaps from {fastest_upstream}")
+
+    cmap_tasks = [
+        asyncio.create_task(get_cmap_file_path_async(cmap_file_name, client))
+        for cmap_file_name in CMAP_METADATA
+    ]
+    await asyncio.gather(*cmap_tasks)
+
+
 async def async_warmup():
     logger.info("Downloading all assets...")
     from tiktoken import encoding_for_model
@@ -329,11 +453,9 @@ async def async_warmup():
     _ = encoding_for_model("gpt-4o")
     async with httpx.AsyncClient() as client:
         onnx_task = asyncio.create_task(get_doclayout_onnx_model_path_async(client))
-        onnx_task2 = asyncio.create_task(
-            get_table_detection_rapidocr_model_path_async(client)
-        )
         font_tasks = asyncio.create_task(download_all_fonts_async(client))
-        await asyncio.gather(onnx_task, onnx_task2, font_tasks)
+        cmap_tasks = asyncio.create_task(download_all_cmaps_async(client))
+        await asyncio.gather(onnx_task, font_tasks, cmap_tasks)
 
 
 def warmup():
@@ -341,15 +463,23 @@ def warmup():
 
 
 def generate_all_assets_file_list():
-    result = {}
+    result: dict[str, list[dict[str, str]]] = {}
     result["fonts"] = []
     result["models"] = []
     result["tiktoken"] = []
+    result["cmap"] = []
     for font_file_name in EMBEDDING_FONT_METADATA:
         result["fonts"].append(
             {
                 "name": font_file_name,
                 "sha3_256": EMBEDDING_FONT_METADATA[font_file_name]["sha3_256"],
+            }
+        )
+    for cmap_file_name in CMAP_METADATA:
+        result["cmap"].append(
+            {
+                "name": cmap_file_name,
+                "sha3_256": CMAP_METADATA[cmap_file_name]["sha3_256"],
             }
         )
     for tiktoken_file, sha3_256 in TIKTOKEN_CACHES.items():
@@ -363,12 +493,6 @@ def generate_all_assets_file_list():
         {
             "name": "doclayout_yolo_docstructbench_imgsz1024.onnx",
             "sha3_256": DOCLAYOUT_YOLO_DOCSTRUCTBENCH_IMGSZ1024ONNX_SHA3_256,
-        },
-    )
-    result["models"].append(
-        {
-            "name": "ch_PP-OCRv4_det_infer.onnx",
-            "sha3_256": TABLE_DETECTION_RAPIDOCR_MODEL_SHA3_256,
         },
     )
     return result
@@ -483,6 +607,4 @@ if __name__ == "__main__":
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     # warmup()
     # generate_offline_assets_package()
-    # restore_offline_assets_package(Path(
-    #     '/Users/aw/.cache/babeldoc/assets/offline_assets_33971e4940e90ba0c35baacda44bbe83b214f4703a7bdb8b837de97d0383508c.zip'))
     # warmup()

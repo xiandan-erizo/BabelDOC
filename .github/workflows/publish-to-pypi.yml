@@ -28,14 +28,14 @@ jobs:
     outputs:
       is_release: ${{ steps.check-version.outputs.tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           persist-credentials: true
           fetch-depth: 2
           token: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Setup uv with Python 3.12
-        uses: astral-sh/setup-uv@4959332f0f014c5280e7eac8b70c90cb574c9f9b # v6.6.0
+        uses: astral-sh/setup-uv@85856786d1ce8acfbcc2f13a5f3fbd6b938f9f41 # v7.1.2
         with:
           python-version: "3.12"
           enable-cache: true
@@ -55,6 +55,11 @@ jobs:
           version-command: |
             cat pyproject.toml | grep "version = " | head -n 1 | awk -F'"' '{print $2}'
 
+      - name: Check manual release notes
+        if: steps.check-version.outputs.tag
+        run: |
+          test -f "docs/release-notes/${{ steps.check-version.outputs.tag }}.md"
+
       - name: Install Dependencies
         run: |
           uv sync
@@ -69,7 +74,7 @@ jobs:
         run: "uv build"
 
       - name: Store the distribution packages
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: python-package-distributions
           path: dist/
@@ -96,7 +101,7 @@ jobs:
           path: dist/
 
       - name: Publish distribution 📦 to PyPI
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
 
   publish-to-testpypi:
     name: Publish Python 🐍 distribution 📦 to TestPyPI
@@ -120,7 +125,7 @@ jobs:
           path: dist/
 
       - name: Publish distribution 📦 to TestPyPI
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
         with:
           repository-url: https://test.pypi.org/legacy/
 
@@ -139,7 +144,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           persist-credentials: true
           fetch-depth: 2
@@ -152,3 +157,21 @@ jobs:
           tag: ${{ needs.build.outputs.is_release }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepend manual release notes
+        if: needs.build.outputs.is_release != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.build.outputs.is_release }}
+        run: |
+          set -euo pipefail
+          notes_path="docs/release-notes/${TAG}.md"
+          current_body="$(mktemp)"
+          combined_body="$(mktemp)"
+          gh release view "${TAG}" --json body --jq .body > "${current_body}"
+          {
+            cat "${notes_path}"
+            printf '\n\n---\n\n'
+            cat "${current_body}"
+          } > "${combined_body}"
+          gh release edit "${TAG}" --notes-file "${combined_body}"

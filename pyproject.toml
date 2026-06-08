@@ -1,6 +1,6 @@
 [project]
 name = "BabelDOC"
-version = "0.5.16"
+version = "0.6.3"
 description = "Yet Another Document Translator"
 license = "AGPL-3.0"
 readme = "README.md"
@@ -22,16 +22,17 @@ dependencies = [
     "httpx[socks]>=0.27.0",
     "huggingface-hub>=0.27.0",
     "numpy>=2.0.2",
-    "onnx>=1.18.0",
-    "onnxruntime>=1.16.1",
+    "onnx>=1.21.0",
+    "onnxruntime>=1.16.1,<1.24; python_version < '3.11'",
+    "onnxruntime>=1.16.1; python_version >= '3.11'",
     "openai>=1.59.3",
     "orjson>=3.10.14",
     "charset-normalizer >= 2.0.0",
-    "cryptography >= 36.0.0",
+    "cryptography >= 46.0.7",
     #    "pdfminer-six==20250416",
     "peewee>=3.17.8",
     "psutil>=7.0.0",
-    "pymupdf>=1.25.1",
+    "pymupdf>=1.26.7",
     "rich>=13.9.4",
     "toml>=0.10.2",
     "tqdm>=4.67.1",
@@ -42,9 +43,8 @@ dependencies = [
     "scikit-image>=0.25.2",
     "freetype-py>=2.5.1",
     "tiktoken>=0.11.0",
-    "python-levenshtein>=0.27.1",
+    "Levenshtein>=0.27.1",
     "opencv-python-headless>=4.10.0.84",
-    "rapidocr-onnxruntime>=1.4.4",
     "pyzstd>=0.17.0",
     "hyperscan>=0.7.13",
     "rtree>=1.4.0",
@@ -137,6 +137,8 @@ max-complexity = 10 # 函数圈复杂度阈值
 [tool.ruff.lint.per-file-ignores]
 "babeldoc/babeldoc_exception/BabelDOCException.py" = ["N999"]
 "babeldoc/format/pdf/pdfinterp.py" = ["N"] # 忽略命名规范
+"babeldoc/tools/executor/babeldoc_adapter.py" = ["F401"]
+"babeldoc/tools/executor/server.py" = ["N802"]
 "tests/*" = ["S101"]            # 在测试文件中允许 assert
 "**/__init__.py" = ["F401"]     # 允许未使用的导入
 # 忽略 S311 警告，因为这是有意的
@@ -159,13 +161,12 @@ dev = [
     "pylance>=0.29.0",
     "py-spy>=0.4.0",
 ]
-
 [tool.pytest.ini_options]
 pythonpath = [".", "src"]
 testpaths = ["tests"]
 
 [bumpver]
-current_version = "0.5.16"
+current_version = "0.6.3"
 version_pattern = "MAJOR.MINOR.PATCH[.PYTAGNUM]"
 
 [bumpver.file_patterns]
@@ -182,9 +183,6 @@ version_pattern = "MAJOR.MINOR.PATCH[.PYTAGNUM]"
 "babeldoc/const.py" = [
     '__version__ = "{version}"'
 ]
-
-[tool.uv.sources]
-yadt = { path = ".", editable = true }
 
 [tool.pyright]
 pythonVersion = "3.10"

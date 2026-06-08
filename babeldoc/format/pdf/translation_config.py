@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import threading
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
 from babeldoc.const import CACHE_FOLDER
@@ -23,15 +24,34 @@ class WatermarkOutputMode(enum.Enum):
     Both = "both"
 
 
+@dataclass(frozen=True, slots=True)
+class TitleContextSnapshot:
+    debug_id: str | None
+    unicode: str | None
+    layout_label: str | None = None
+
+
 class SharedContextCrossSplitPart:
     def __init__(self):
-        self.first_paragraph = None
-        self.recent_title_paragraph = None
+        self.first_paragraph: TitleContextSnapshot | None = None
+        self.recent_title_paragraph: TitleContextSnapshot | None = None
         self._lock = threading.Lock()
         self.user_glossaries: list[Glossary] = []
         self.auto_extracted_glossary: Glossary | None = None
         self.raw_extracted_terms: list[tuple[str, str]] = []
         self.auto_enabled_ocr_workaround = False
+        # Statistics for valid characters/text across the whole file
+        self.valid_char_count_total: int = 0
+        self.total_valid_text_token_count: int = 0
+
+    def snapshot_title_paragraph(self, paragraph) -> TitleContextSnapshot | None:
+        if paragraph is None:
+            return None
+        return TitleContextSnapshot(
+            debug_id=getattr(paragraph, "debug_id", None),
+            unicode=getattr(paragraph, "unicode", None),
+            layout_label=getattr(paragraph, "layout_label", None),
+        )
 
     def initialize_glossaries(self, initial_glossaries: list[Glossary] | None):
         with self._lock:
@@ -45,6 +65,9 @@ class SharedContextCrossSplitPart:
             for g in self.user_glossaries:
                 for entity in g.normalized_lookup:
                     self.norm_terms.add(entity)
+            # reset statistics buffer when initializing
+            self.valid_char_count_total = 0
+            self.total_valid_text_token_count = 0
 
     def add_raw_extracted_term_pair(self, src: str, tgt: str):
         with self._lock:
@@ -67,7 +90,11 @@ class SharedContextCrossSplitPart:
         return current_name
 
     def contains_term(self, term: str) -> bool:
-        pass
+        with self._lock:
+            try:
+                return term in self.norm_terms
+            except Exception:
+                return False
 
     def finalize_auto_extracted_glossary(self):
         with self._lock:
@@ -112,12 +139,24 @@ class SharedContextCrossSplitPart:
                     all_glossaries.append(self.auto_extracted_glossary)
                 return all_glossaries
 
+    def add_valid_counts(self, char_count: int, token_count: int):
+        """Accumulate valid character and token counts in a threadsafe way."""
+        if char_count <= 0 and token_count <= 0:
+            return
+        with self._lock:
+            if char_count > 0:
+                self.valid_char_count_total += char_count
+            if token_count > 0:
+                self.total_valid_text_token_count += token_count
+
 
 class TranslationConfig:
     @staticmethod
     def create_max_pages_per_part_split_strategy(max_pages_per_part: int):
         return PageCountStrategy(max_pages_per_part)
 
+    # for backward compatibility,
+    # new parameters should be added at the end of the function.
     def __init__(
         self,
         translator: BaseTranslator,
@@ -176,6 +215,8 @@ class TranslationConfig:
         skip_formula_offset_calculation: bool = False,
         term_extraction_translator: BaseTranslator | None = None,
         metadata_extra_data: str | None = None,
+        term_pool_max_workers: int | None = None,
+        disable_same_text_fallback: bool = False,
     ):
         self.translator = translator
         self.term_extraction_translator = term_extraction_translator or translator
@@ -203,6 +244,13 @@ class TranslationConfig:
         # Set pool_max_workers with default value from qps
         self.pool_max_workers = (
             pool_max_workers if pool_max_workers is not None else qps
+        )
+        # Set term_pool_max_workers for automatic term extraction.
+        # If not provided, default to pool_max_workers.
+        self.term_pool_max_workers = (
+            term_pool_max_workers
+            if term_pool_max_workers is not None
+            else self.pool_max_workers
         )
         self.split_short_lines = split_short_lines
 
@@ -275,7 +323,12 @@ class TranslationConfig:
         self._part_working_dirs: dict[int, Path] = {}
         self._part_output_dirs: dict[int, Path] = {}
 
-        self.table_model = table_model
+        if table_model is not None:
+            logger.warning(
+                "TranslationConfig.table_model is deprecated and ignored; "
+                "RapidOCR table-text detection has been retired."
+            )
+        self.table_model = None
         self.show_char_box = show_char_box
         self.custom_system_prompt = custom_system_prompt
         self.add_formula_placehold_hint = add_formula_placehold_hint
@@ -306,8 +359,6 @@ class TranslationConfig:
 
         self.save_auto_extracted_glossary = save_auto_extracted_glossary
 
-        # force disable table translate until the new model is ready
-        self.table_model = None
         self.enable_graphic_element_process = enable_graphic_element_process
         self.skip_form_render = skip_form_render
         self.skip_curve_render = skip_curve_render
@@ -324,6 +375,7 @@ class TranslationConfig:
             "completion_tokens": 0,
             "cache_hit_prompt_tokens": 0,
         }
+        self.disable_same_text_fallback = disable_same_text_fallback
 
         if self.ocr_workaround:
             self.remove_non_formula_lines = False
@@ -463,6 +515,8 @@ class TranslateResult:
     no_watermark_dual_pdf_path: Path | None
     peak_memory_usage: int | None
     auto_extracted_glossary_path: Path | None
+    total_valid_character_count: int | None
+    total_valid_text_token_count: int | None
 
     def __init__(
         self,
@@ -479,6 +533,8 @@ class TranslateResult:
         self.no_watermark_dual_pdf_path = dual_pdf_path
 
         self.auto_extracted_glossary_path = auto_extracted_glossary_path
+        self.total_valid_character_count = None
+        self.total_valid_text_token_count = None
 
     def __str__(self):
         """Return a human-readable string representation of the translation result."""
@@ -523,6 +579,20 @@ class TranslateResult:
 
         if hasattr(self, "peak_memory_usage") and self.peak_memory_usage:
             result.append(f"\tPeak memory usage: {self.peak_memory_usage} MB")
+
+        if hasattr(self, "total_valid_character_count") and isinstance(
+            self.total_valid_character_count, int
+        ):
+            result.append(
+                f"\tTotal valid character count: {self.total_valid_character_count}"
+            )
+
+        if hasattr(self, "total_valid_text_token_count") and isinstance(
+            self.total_valid_text_token_count, int
+        ):
+            result.append(
+                f"\tTotal valid text token count (gpt-4o): {self.total_valid_text_token_count}"
+            )
 
         if result:
             result.insert(0, "Translation results:")

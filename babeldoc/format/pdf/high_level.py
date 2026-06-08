@@ -11,11 +11,9 @@ import time
 from asyncio import CancelledError
 from pathlib import Path
 from typing import Any
-from typing import BinaryIO
 
 import pymupdf
 from pymupdf import Document
-from pymupdf import Font
 
 from babeldoc import asynchronize
 from babeldoc.assets.assets import warmup
@@ -26,13 +24,11 @@ from babeldoc.babeldoc_exception.BabelDOCException import (
 from babeldoc.const import CACHE_FOLDER
 from babeldoc.const import WATERMARK_VERSION
 from babeldoc.const import close_process_pool
-from babeldoc.format.pdf.converter import TranslateConverter
 from babeldoc.format.pdf.document_il import il_version_1
 from babeldoc.format.pdf.document_il.backend.pdf_creater import SAVE_PDF_STAGE_NAME
 from babeldoc.format.pdf.document_il.backend.pdf_creater import SUBSET_FONT_STAGE_NAME
 from babeldoc.format.pdf.document_il.backend.pdf_creater import PDFCreater
 from babeldoc.format.pdf.document_il.backend.pdf_creater import reproduce_cmap
-from babeldoc.format.pdf.document_il.frontend.il_creater import ILCreater
 from babeldoc.format.pdf.document_il.midend.add_debug_information import (
     AddDebugInformation,
 )
@@ -51,23 +47,18 @@ from babeldoc.format.pdf.document_il.midend.table_parser import TableParser
 from babeldoc.format.pdf.document_il.midend.typesetting import Typesetting
 from babeldoc.format.pdf.document_il.utils.fontmap import FontMapper
 from babeldoc.format.pdf.document_il.xml_converter import XMLConverter
-from babeldoc.format.pdf.pdfinterp import PDFPageInterpreterEx
 from babeldoc.format.pdf.result_merger import ResultMerger
 from babeldoc.format.pdf.split_manager import SplitManager
 from babeldoc.format.pdf.translation_config import TranslateResult
 from babeldoc.format.pdf.translation_config import TranslationConfig
 from babeldoc.format.pdf.translation_config import WatermarkOutputMode
-from babeldoc.pdfminer.pdfdocument import PDFDocument
-from babeldoc.pdfminer.pdfinterp import PDFResourceManager
-from babeldoc.pdfminer.pdfpage import PDFPage
-from babeldoc.pdfminer.pdfparser import PDFParser
 from babeldoc.progress_monitor import ProgressMonitor
 from babeldoc.utils import memory
 
 logger = logging.getLogger(__name__)
 
 TRANSLATE_STAGES = [
-    (ILCreater.stage_name, 14.12),  # Parse PDF and Create IR
+    ("Parse PDF and Create Intermediate Representation", 14.12),
     (DetectScannedFile.stage_name, 2.45),  # DetectScannedFile
     (LayoutParser.stage_name, 14.03),  # Parse Page Layout
     (TableParser.stage_name, 1.0),  # Parse Table
@@ -101,6 +92,66 @@ def safe_save(doc, *args, **kwargs):
     except Exception:
         # second try, saving with 'garbage=3' for object missing
         doc.ez_save(*args, **kwargs)
+
+
+def rebuild_pdf_by_inserting_pages(
+    pdf_path: str | Path,
+    output_pdf_path: str | Path,
+) -> None:
+    output_pdf_path = Path(output_pdf_path)
+    rebuilt_pdf_path = output_pdf_path.with_name(
+        f"{output_pdf_path.stem}.rebuilt{output_pdf_path.suffix}"
+    )
+    if rebuilt_pdf_path.exists():
+        rebuilt_pdf_path.unlink()
+
+    source_doc = Document(pdf_path)
+    rebuilt_doc = Document()
+    try:
+        rebuilt_doc.insert_pdf(source_doc)
+        rebuilt_doc.save(rebuilt_pdf_path)
+    finally:
+        rebuilt_doc.close()
+        source_doc.close()
+
+    rebuilt_pdf_path.replace(output_pdf_path)
+
+
+def open_pdf_with_save_fallback(
+    pdf_path: str | Path,
+    output_pdf_path: str | Path,
+) -> Document:
+    doc_pdf = Document(pdf_path)
+    try:
+        safe_save(doc_pdf, output_pdf_path)
+        return doc_pdf
+    except Exception:
+        doc_pdf.close()
+        rebuild_pdf_by_inserting_pages(pdf_path, output_pdf_path)
+        return Document(output_pdf_path)
+
+
+def save_pdf_with_same_path_fallback(
+    doc_pdf: Document,
+    output_pdf_path: str | Path,
+) -> Document:
+    output_pdf_path = Path(output_pdf_path)
+    doc_name = Path(getattr(doc_pdf, "name", "") or "")
+    if doc_name.resolve() != output_pdf_path.resolve():
+        safe_save(doc_pdf, output_pdf_path)
+        return doc_pdf
+
+    saved_pdf_path = output_pdf_path.with_name(
+        f"{output_pdf_path.stem}.saved{output_pdf_path.suffix}"
+    )
+    if saved_pdf_path.exists():
+        saved_pdf_path.unlink()
+    try:
+        safe_save(doc_pdf, saved_pdf_path)
+    finally:
+        doc_pdf.close()
+    saved_pdf_path.replace(output_pdf_path)
+    return Document(output_pdf_path)
 
 
 def check_metadata(pdf: Document):
@@ -203,124 +254,6 @@ def translator_supports_llm(translator) -> bool:
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.debug("translator %s failed llm detection: %s", translator, exc)
         return False
-
-
-def start_parse_il(
-    inf: BinaryIO,
-    pages: list[int] | None = None,
-    vfont: str = "",
-    vchar: str = "",
-    thread: int = 0,
-    doc_zh: Document = None,
-    lang_in: str = "",
-    lang_out: str = "",
-    service: str = "",
-    resfont: str = "",
-    noto: Font = None,
-    cancellation_event: asyncio.Event = None,
-    il_creater: ILCreater = None,
-    translation_config: TranslationConfig = None,
-    **kwarg: Any,
-) -> None:
-    rsrcmgr = PDFResourceManager()
-    layout = {}
-    device = TranslateConverter(
-        rsrcmgr,
-        vfont,
-        vchar,
-        thread,
-        layout,
-        lang_in,
-        lang_out,
-        service,
-        resfont,
-        noto,
-        kwarg.get("envs", {}),
-        kwarg.get("prompt", []),
-        il_creater=il_creater,
-    )
-    # model = DocLayoutModel.load_available()
-
-    assert device is not None
-    assert il_creater is not None
-    assert translation_config is not None
-    obj_patch = {}
-    interpreter = PDFPageInterpreterEx(rsrcmgr, device, obj_patch, il_creater)
-    if pages:
-        total_pages = len(pages)
-    else:
-        total_pages = doc_zh.page_count
-
-    il_creater.on_total_pages(total_pages)
-
-    parser = PDFParser(inf)
-    doc = PDFDocument(parser)
-
-    for pageno, page in enumerate(PDFPage.create_pages(doc)):
-        if cancellation_event and cancellation_event.is_set():
-            raise CancelledError("task cancelled")
-        if pages and (pageno not in pages):
-            continue
-        page.pageno = pageno
-
-        if not translation_config.should_translate_page(pageno + 1):
-            continue
-
-        height, width = (
-            page.cropbox[3] - page.cropbox[1],
-            page.cropbox[2] - page.cropbox[0],
-        )
-        if height > 1200 or width > 2000:
-            logger.warning(f"page {pageno + 1} is too large, maybe unable to translate")
-            # continue
-
-        translation_config.raise_if_cancelled()
-        # The current program no longer relies on
-        # the following layout recognition results,
-        # but in order to facilitate the migration of pdf2zh,
-        # the relevant code is temporarily retained.
-        # pix = doc_zh[page.pageno].get_pixmap()
-        # image = np.frombuffer(pix.samples, np.uint8).reshape(
-        #     pix.height, pix.width, 3
-        # )[:, :, ::-1]
-        # page_layout = model.predict(
-        #     image, imgsz=int(pix.height / 32) * 32)[0]
-        # # kdtree 是不可能 kdtree 的，不如直接渲染成图片，用空间换时间
-        # box = np.ones((pix.height, pix.width))
-        # h, w = box.shape
-        # vcls = ["abandon", "figure", "table",
-        #         "isolate_formula", "formula_caption"]
-        # for i, d in enumerate(page_layout.boxes):
-        #     if page_layout.names[int(d.cls)] not in vcls:
-        #         x0, y0, x1, y1 = d.xyxy.squeeze()
-        #         x0, y0, x1, y1 = (
-        #             np.clip(int(x0 - 1), 0, w - 1),
-        #             np.clip(int(h - y1 - 1), 0, h - 1),
-        #             np.clip(int(x1 + 1), 0, w - 1),
-        #             np.clip(int(h - y0 + 1), 0, h - 1),
-        #         )
-        #         box[y0:y1, x0:x1] = i + 2
-        # for i, d in enumerate(page_layout.boxes):
-        #     if page_layout.names[int(d.cls)] in vcls:
-        #         x0, y0, x1, y1 = d.xyxy.squeeze()
-        #         x0, y0, x1, y1 = (
-        #             np.clip(int(x0 - 1), 0, w - 1),
-        #             np.clip(int(h - y1 - 1), 0, h - 1),
-        #             np.clip(int(x1 + 1), 0, w - 1),
-        #             np.clip(int(h - y0 + 1), 0, h - 1),
-        #         )
-        #         box[y0:y1, x0:x1] = 0
-        # layout[page.pageno] = box
-        # 新建一个 xref 存放新指令流
-        # page.page_xref = doc_zh.get_new_xref()  # hack 插入页面的新 xref
-        # doc_zh.update_object(page.page_xref, "<<>>")
-        # doc_zh.update_stream(page.page_xref, b"")
-        # doc_zh[page.pageno].set_contents(page.page_xref)
-        ops_base = interpreter.process_page(page)
-        il_creater.on_page_base_operation(ops_base)
-        il_creater.on_page_end()
-    il_creater.on_finish()
-    device.close()
 
 
 def translate(translation_config: TranslationConfig) -> TranslateResult:
@@ -755,6 +688,23 @@ def do_translate(
         logger.info(
             f"finish translate: {original_pdf_path}, cost: {finish_time - start_time} s",
         )
+        # Populate aggregate valid text statistics into result
+        try:
+            sc = translation_config.shared_context_cross_split_part
+            result.total_valid_character_count = getattr(
+                sc, "valid_char_count_total", 0
+            )
+            token_total = getattr(sc, "total_valid_text_token_count", None)
+            result.total_valid_text_token_count = (
+                token_total if isinstance(token_total, int) else 0
+            )
+        except Exception as e:
+            logger.warning("Failed to populate valid text statistics: %s", e)
+            try:
+                result.total_valid_character_count = 0
+                result.total_valid_text_token_count = 0
+            except Exception:
+                pass
         result.original_pdf_path = translation_config.input_file
         result.peak_memory_usage = peak_memory_usage
 
@@ -913,8 +863,7 @@ def _do_translate_single(
 
     # Continue with original processing
     temp_pdf_path = translation_config.get_working_file_path("input.pdf")
-    doc_pdf2zh = Document(original_pdf_path)
-    safe_save(doc_pdf2zh, temp_pdf_path)
+    doc_pdf2zh = open_pdf_with_save_fallback(original_pdf_path, temp_pdf_path)
 
     # Fix null xref in PDF file
     invalid_pages = []
@@ -930,8 +879,7 @@ def _do_translate_single(
     # for page in doc_pdf2zh:
     #     page.insert_font(resfont, None)
 
-    resfont = None
-    safe_save(doc_pdf2zh, temp_pdf_path)
+    doc_pdf2zh = save_pdf_with_same_path_fallback(doc_pdf2zh, temp_pdf_path)
 
     # if not translation_config.skip_scanned_detection and DetectScannedFile(
     #     translation_config
@@ -949,22 +897,19 @@ def _do_translate_single(
     #         )
     #         raise ScannedPDFError("Scanned PDF detected.")
 
-    il_creater = ILCreater(translation_config)
-    il_creater.mupdf = doc_pdf2zh
     xml_converter = XMLConverter()
     logger.debug(f"start parse il from {temp_pdf_path}")
-    with Path(temp_pdf_path).open("rb") as f:
-        start_parse_il(
-            f,
-            doc_zh=doc_pdf2zh,
-            resfont=resfont,
-            il_creater=il_creater,
-            translation_config=translation_config,
-        )
+    from babeldoc.format.pdf.new_parser.native_parse import (
+        parse_prepared_pdf_with_new_parser_to_legacy_ir,
+    )
+
+    docs = parse_prepared_pdf_with_new_parser_to_legacy_ir(
+        temp_pdf_path,
+        config=translation_config,
+        doc_pdf=doc_pdf2zh,
+    )
     logger.debug(f"finish parse il from {temp_pdf_path}")
-    docs = il_creater.create_il()
     logger.debug(f"finish create il from {temp_pdf_path}")
-    del il_creater
     if translation_config.only_include_translated_page and not docs.page:
         return None
 

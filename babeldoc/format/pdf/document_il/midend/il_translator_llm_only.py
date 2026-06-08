@@ -1,8 +1,8 @@
-import copy
 import json
 import logging
 import re
 from pathlib import Path
+from string import Template
 
 import Levenshtein
 import tiktoken
@@ -29,11 +29,70 @@ from babeldoc.format.pdf.document_il.utils.paragraph_helper import (
 from babeldoc.format.pdf.document_il.utils.paragraph_helper import (
     is_pure_numeric_paragraph,
 )
+from babeldoc.format.pdf.translation_config import TitleContextSnapshot
 from babeldoc.format.pdf.translation_config import TranslationConfig
 from babeldoc.translator.translator import BaseTranslator
 from babeldoc.utils.priority_thread_pool_executor import PriorityThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
+
+
+PROMPT_TEMPLATE = Template(
+    """$role_block
+
+## Structure Rules
+1. Keep **the same number of paragraphs as the input**.
+2. Input paragraphs may be **sliced pieces of the same original paragraph**.  
+   → You MUST treat each input paragraph **as an independent, fixed unit**.  
+   → Do NOT merge paragraphs, split paragraphs, or move content between paragraphs.
+3. Inside each paragraph, you may adjust word order for fluency, but:
+   - Do NOT change the meaning.
+   - Do NOT move placeholders, tags, or code outside their paragraph.
+4. Translate ALL human-readable content into $lang_out.
+
+## Do NOT Modify
+- Tags (e.g., <style>, <b>, <code>): keep them exactly the same.  
+  *Translate tag-internal text except code blocks (<code>…</code>)*.
+- Placeholders: `{v1}`, `{name}`, `%s`, `%d`, `[[...]]`, `%%...%%` — keep exactly unchanged.
+- JSON keys or structure.
+
+$glossary_usage_rules_block
+## Output Format
+Return a JSON array of the same length.  
+For each item:
+- Keep the same "id" and remove other fields like "input" and "layout_label".
+- Add "output" with the translated text only.
+- No extra text, no ```json blocks.
+
+## Style
+- Produce fluent, professional $lang_out.
+- Preserve punctuation unless needed for target language fluency.
+
+### Example
+Input:
+[
+    {
+    "id": 0,
+    "input": "{v1}<style id='2'>hello</style>, world!",
+    "layout_label": "text"
+    }
+]
+Output:
+[
+    {
+    "id": 0,
+    "output": "{v1}<style id='2'>你好</style>，世界！"
+    }
+]
+
+$contextual_hints_block
+
+$glossary_tables_block
+
+## Here is the input:
+
+$json_input_str"""
+)
 
 
 class BatchParagraph:
@@ -122,9 +181,11 @@ class ILTranslatorLLMOnly:
             # Try to find the first title paragraph
             title_paragraph = self.find_title_paragraph(docs)
             self.translation_config.shared_context_cross_split_part.first_paragraph = (
-                copy.deepcopy(title_paragraph)
+                self.shared_context_cross_split_part.snapshot_title_paragraph(
+                    title_paragraph
+                )
             )
-            self.translation_config.shared_context_cross_split_part.recent_title_paragraph = copy.deepcopy(
+            self.translation_config.shared_context_cross_split_part.recent_title_paragraph = self.shared_context_cross_split_part.snapshot_title_paragraph(
                 title_paragraph
             )
             if title_paragraph:
@@ -184,7 +245,10 @@ class ILTranslatorLLMOnly:
 
         path = self.translation_config.get_working_file_path("translate_tracking.json")
 
-        if self.translation_config.debug:
+        if (
+            self.translation_config.debug
+            or self.translation_config.working_dir is not None
+        ):
             logger.debug(f"save translate tracking to {path}")
             with Path(path).open("w", encoding="utf-8") as f:
                 f.write(tracker.to_json())
@@ -520,7 +584,9 @@ class ILTranslatorLLMOnly:
             translated_ids.add(id(paragraph))
             if paragraph.layout_label == "title":
                 self.shared_context_cross_split_part.recent_title_paragraph = (
-                    copy.deepcopy(paragraph)
+                    self.shared_context_cross_split_part.snapshot_title_paragraph(
+                        paragraph
+                    )
                 )
 
             if total_token_count > 200 or len(paragraphs) > 5:
@@ -563,8 +629,8 @@ class ILTranslatorLLMOnly:
         pbar: tqdm | None = None,
         page_font_map: dict[str, PdfFont] = None,
         xobj_font_map: dict[int, dict[str, PdfFont]] = None,
-        title_paragraph: PdfParagraph | None = None,
-        local_title_paragraph: PdfParagraph | None = None,
+        title_paragraph: TitleContextSnapshot | None = None,
+        local_title_paragraph: TitleContextSnapshot | None = None,
         executor: PriorityThreadPoolExecutor | None = None,
         paragraph_token_count: int = 0,
         mp_id: int = 0,
@@ -627,158 +693,16 @@ class ILTranslatorLLMOnly:
                 json_format_input, ensure_ascii=False, indent=2
             )
 
-            # Start building the new prompt
-            llm_prompt_parts = []
-
-            # 1. #role
-            llm_prompt_parts.append("#role")
-            if self.translation_config.custom_system_prompt:
-                llm_prompt_parts.append(self.translation_config.custom_system_prompt)
-                llm_prompt_parts.append(
-                    "When translating, strictly follow the instructions below to ensure translation quality and preserve all formatting, tags, and placeholders:\n"
-                )
-            else:
-                llm_prompt_parts.append(
-                    f"You are a professional and reliable machine translation engine responsible for translating the input text into {self.translation_config.lang_out}.\n"
-                    "When translating, strictly follow the instructions below to ensure translation quality and preserve all formatting, tags, and placeholders:\n"
-                )
-
-            # 3. ## Strict Rules:
-            llm_prompt_parts.append("\n## Strict Rules:")
-            llm_prompt_parts.append(
-                "1. Do NOT translate or alter any of the following elements:"
-            )
-            llm_prompt_parts.append(
-                "    Style or HTML-like tags: e.g., <style id='1'>...</style>, <b>...</b>, <i>...</i>, <code>...</code>, etc."
-            )
-            llm_prompt_parts.append(
-                "    Formula or variable placeholders enclosed in curly braces: e.g., {v3}, {equation_1}, {name}, etc."
-            )
-            llm_prompt_parts.append(
-                "    Any other placeholders like [[...]], %%...%%, %s, %d, etc."
-            )
-            llm_prompt_parts.append(
-                "2. Preserve the exact structure, position, and content of the above elements — do not modify spacing, punctuation, or formatting."
-            )
-            llm_prompt_parts.append(
-                "3. If the input contains:Proper nouns, code, or non-translatable technical terms, retain them in the original form."
-            )
-            llm_prompt_parts.append(
-                "4. If adjacent paragraphs are semantically coherent, you may appropriately adjust the word order, but you must keep the number of paragraphs unchanged and must not move placeholders from one paragraph to another."
-            )
-
-            # 4. ## Input/Output Format:
-            llm_prompt_parts.append("\n## Input/Output Format:")
-            llm_prompt_parts.append(
-                '1. You will receive a JSON object with entries containing "id" and "input" fields.'
-            )
-            llm_prompt_parts.append(
-                f'2. Your task is to translate the value of "input" into {self.translation_config.lang_out}, while applying the rules above.'
-            )
-            llm_prompt_parts.append(
-                '3. Return a new JSON object with the same "id" and the translated "output" field.'
-            )
-            llm_prompt_parts.append(
-                "Please return the translated json directly without wrapping ```json``` tag or include any additional information."
-            )
-
-            # 5. ##example (Renumbered from 5 to 4)
-            llm_prompt_parts.append("\n## Example:")
-            llm_prompt_parts.append("Here is an example of the expected format:")
-            llm_prompt_parts.append("")  # Blank line
-            llm_prompt_parts.append("<example>")
-            llm_prompt_parts.append("```json")
-            llm_prompt_parts.append("Input:")
-            llm_prompt_parts.append("{")
-            llm_prompt_parts.append('    "id": 0,')
-            llm_prompt_parts.append(
-                '    "input": "{v1}<style id=\'2\'>hello</style>,world!",'
-            )
-            llm_prompt_parts.append('    "layout_label": "list_item_hybrid"')
-            llm_prompt_parts.append("}")
-            llm_prompt_parts.append("```")
-            llm_prompt_parts.append("Output:")
-            llm_prompt_parts.append("```json")
-            llm_prompt_parts.append("{")
-            llm_prompt_parts.append('    "id": 0,')
-            llm_prompt_parts.append(
-                '    "output": "{v1}<style id=\'2\'>你好</style>，世界！"'
-            )
-            llm_prompt_parts.append("}")
-            llm_prompt_parts.append("```")
-            llm_prompt_parts.append("</example>")
-
-            # 2. ##Contextual Hints for Better Translation
-            contextual_hints_section: list[str] = []
-            hint_idx = 1
-            if title_paragraph:
-                contextual_hints_section.append(
-                    f"{hint_idx}. First title in full text: {title_paragraph.unicode}"
-                )
-                hint_idx += 1
-
-            if local_title_paragraph:
-                is_different_from_global = True
-                if title_paragraph:
-                    if local_title_paragraph.debug_id == title_paragraph.debug_id:
-                        is_different_from_global = False
-
-                if is_different_from_global:
-                    contextual_hints_section.append(
-                        f"{hint_idx}. The most recent title is: {local_title_paragraph.unicode}"
-                    )
-                    hint_idx += 1
-
-            # --- ADD GLOSSARY HINTS ---
             batch_text_for_glossary_matching = "\n".join(
                 item.get("input", "") for item in json_format_input
             )
 
-            active_glossary_markdown_blocks: list[str] = []
-            # Use cached glossaries
-            if self._cached_glossaries:
-                for glossary in self._cached_glossaries:
-                    # Get active entries for the current batch_text_for_glossary_matching
-                    active_entries = glossary.get_active_entries_for_text(
-                        batch_text_for_glossary_matching
-                    )
-
-                    if active_entries:
-                        current_glossary_md_entries: list[str] = []
-                        for original_source, target_text in sorted(active_entries):
-                            current_glossary_md_entries.append(
-                                f"| {original_source} | {target_text} |"
-                            )
-
-                        if current_glossary_md_entries:
-                            glossary_table_md = (
-                                f"### Glossary: {glossary.name}\n\n"
-                                "| Source Term | Target Term |\n"
-                                "|-------------|-------------|\n"
-                                + "\n".join(current_glossary_md_entries)
-                            )
-                            active_glossary_markdown_blocks.append(glossary_table_md)
-
-            if contextual_hints_section or active_glossary_markdown_blocks:
-                llm_prompt_parts.append("\n## Contextual Hints for Better Translation")
-                llm_prompt_parts.extend(contextual_hints_section)
-
-                if active_glossary_markdown_blocks:
-                    llm_prompt_parts.append(
-                        f"{hint_idx}. You MUST strictly adhere to the following glossaries. please give preference to other glossaries. If a source term from a table appears in the text, use the corresponding target term in your translation:"
-                    )
-                    # hint_idx += 1 # No need to increment if tables are part of this point
-                    for md_block in active_glossary_markdown_blocks:
-                        llm_prompt_parts.append(f"\n{md_block}\n")
-
-            # 6. ## Here is the input:
-            llm_prompt_parts.append("\n## Here is the input:")
-
-            # Combine all parts for the main prompt
-            main_prompt_content = "\n".join(llm_prompt_parts)
-
-            # Append the actual JSON input string at the end, without markdown fence
-            final_input = main_prompt_content + "\n\n" + json_format_input_str
+            final_input = self._build_llm_prompt(
+                json_input_str=json_format_input_str,
+                title_paragraph=title_paragraph,
+                local_title_paragraph=local_title_paragraph,
+                batch_text_for_glossary_matching=batch_text_for_glossary_matching,
+            )
 
             for llm_translate_tracker in llm_translate_trackers:
                 llm_translate_tracker.set_input(final_input)
@@ -841,10 +765,16 @@ class ILTranslatorLLMOnly:
                     input_token_count = self.calc_token_count(trimed_input)
                     output_token_count = self.calc_token_count(output_unicode)
 
-                    if trimed_input == output_unicode and input_token_count > 10:
+                    same_as_input = trimed_input == output_unicode
+                    if (
+                        same_as_input
+                        and input_token_count > 10
+                        and not self.translation_config.disable_same_text_fallback
+                    ):
                         llm_translate_tracker.set_error_message(
                             "Translation result is the same as input, fallback."
                         )
+                        llm_translate_tracker.set_placeholder_full_match()
                         logger.warning(
                             "Translation result is the same as input, fallback."
                         )
@@ -857,17 +787,22 @@ class ILTranslatorLLMOnly:
                         logger.warning(
                             f"Translation result is too long or too short. Input: {input_token_count}, Output: {output_token_count}"
                         )
+                        llm_translate_tracker.set_placeholder_full_match()
                         continue
 
-                    edit_distance = Levenshtein.distance(input_unicode, output_unicode)
-                    if edit_distance < 5 and input_token_count > 20:
-                        llm_translate_tracker.set_error_message(
-                            f"Translation result edit distance is too small. distance: {edit_distance}, input: {input_unicode}, output: {output_unicode}"
+                    if not self.translation_config.disable_same_text_fallback:
+                        edit_distance = Levenshtein.distance(
+                            input_unicode, output_unicode
                         )
-                        logger.warning(
-                            f"Translation result edit distance is too small. distance: {edit_distance}, input: {input_unicode}, output: {output_unicode}"
-                        )
-                        continue
+                        if edit_distance < 5 and input_token_count > 20:
+                            llm_translate_tracker.set_error_message(
+                                f"Translation result edit distance is too small. distance: {edit_distance}, input: {input_unicode}, output: {output_unicode}"
+                            )
+                            logger.warning(
+                                f"Translation result edit distance is too small. distance: {edit_distance}, input: {input_unicode}, output: {output_unicode}"
+                            )
+                            llm_translate_tracker.set_placeholder_full_match()
+                            continue
                     # Apply the translation to the paragraph
                     self.il_translator.post_translate_paragraph(
                         inputs[id_][2],
@@ -947,6 +882,105 @@ class ILTranslatorLLMOnly:
                     title_paragraph=title_paragraph,
                     local_title_paragraph=local_title_paragraph,
                 )
+
+    def _build_llm_prompt(
+        self,
+        json_input_str: str,
+        title_paragraph: TitleContextSnapshot | None,
+        local_title_paragraph: TitleContextSnapshot | None,
+        batch_text_for_glossary_matching: str,
+    ) -> str:
+        """Build LLM prompt using a single template for easier maintenance."""
+        # Build role block, honoring custom_system_prompt if provided.
+        custom_prompt = getattr(self.translation_config, "custom_system_prompt", None)
+        if custom_prompt:
+            role_block = custom_prompt.strip()
+            if "Follow all rules strictly." not in role_block:
+                if not role_block.endswith("\n"):
+                    role_block += "\n"
+                role_block += "Follow all rules strictly."
+        else:
+            role_block = (
+                f"You are a professional {self.translation_config.lang_out} native translator who needs to fluently translate text "
+                f"into {self.translation_config.lang_out}.\n\n"
+                "Follow all rules strictly."
+            )
+
+        # Build contextual hints section.
+        contextual_lines: list[str] = []
+        hint_idx = 1
+        if title_paragraph:
+            contextual_lines.append(
+                f"{hint_idx}. First title in full text: {title_paragraph.unicode}"
+            )
+            hint_idx += 1
+
+        if local_title_paragraph:
+            is_different_from_global = True
+            if title_paragraph:
+                if local_title_paragraph.debug_id == title_paragraph.debug_id:
+                    is_different_from_global = False
+
+            if is_different_from_global:
+                contextual_lines.append(
+                    f"{hint_idx}. The most recent title is: {local_title_paragraph.unicode}"
+                )
+
+        if contextual_lines:
+            contextual_hints_block = (
+                "## Contextual Hints for Better Translation\n"
+                + "\n".join(contextual_lines)
+                + "\n"
+            )
+        else:
+            contextual_hints_block = ""
+
+        # Build glossary usage rules and glossary tables.
+        glossary_usage_rules_block = ""
+        glossary_tables_block = ""
+        glossary_entries_per_glossary: dict[str, list[tuple[str, str]]] = {}
+
+        if self._cached_glossaries:
+            for glossary in self._cached_glossaries:
+                active_entries = glossary.get_active_entries_for_text(
+                    batch_text_for_glossary_matching
+                )
+                if active_entries:
+                    glossary_entries_per_glossary[glossary.name] = sorted(
+                        active_entries
+                    )
+
+        if glossary_entries_per_glossary:
+            glossary_usage_rules_block = (
+                "## Glossary\n"
+                "If a glossary is provided:\n"
+                "- Always use the exact target term.\n"
+                "- Apply glossary items even inside tags or when broken by hyphens/line breaks.\n"
+                "- If glossary does NOT include a term, translate it naturally.\n\n"
+            )
+
+            glossary_table_lines: list[str] = ["## Glossary Tables", ""]
+            for glossary_name, entries in glossary_entries_per_glossary.items():
+                glossary_table_lines.append(f"### Glossary: {glossary_name}")
+                glossary_table_lines.append("")
+                glossary_table_lines.append(
+                    "| Source Term | Target Term |\n|-------------|-------------|"
+                )
+                for original_source, target_text in entries:
+                    glossary_table_lines.append(
+                        f"| {original_source} | {target_text} |"
+                    )
+                glossary_table_lines.append("")
+            glossary_tables_block = "\n".join(glossary_table_lines)
+
+        return PROMPT_TEMPLATE.substitute(
+            role_block=role_block,
+            glossary_usage_rules_block=glossary_usage_rules_block,
+            contextual_hints_block=contextual_hints_block,
+            json_input_str=json_input_str,
+            glossary_tables_block=glossary_tables_block,
+            lang_out=self.translation_config.lang_out,
+        )
 
     def _clean_json_output(self, llm_output: str) -> str:
         # Clean up JSON output by removing common wrapper tags
