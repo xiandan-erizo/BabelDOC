@@ -260,6 +260,79 @@ def test_retry_missing_upload_requests_manual_resubmit(api):
     assert "重新上传" in resp.json()["detail"]
 
 
+# -------------------------------------------------------- download filename
+
+
+def test_download_filename_keeps_original_stem(api, tmp_path):
+    from urllib.parse import unquote
+
+    client, web_db, _m, _fm = api
+    job_id = upload(client).json()["job_id"]  # uploaded as "paper.pdf"
+    out_pdf = tmp_path / "out.pdf"
+    out_pdf.write_bytes(b"%PDF-fake")
+    out_csv = tmp_path / "out.csv"
+    out_csv.write_bytes(b"term,en,zh\n")
+    web_db.Job.update(
+        status="finished",
+        file_name="2506.05301v2.pdf",
+        mono_pdf=str(out_pdf),
+        glossary_csv=str(out_csv),
+    ).where(web_db.Job.job_id == job_id).execute()
+
+    resp = client.get(f"/api/jobs/{job_id}/download?kind=mono")
+    assert resp.status_code == 200
+    cd = unquote(resp.headers["content-disposition"])
+    assert "2506.05301v2.单语.pdf" in cd
+
+    resp = client.get(f"/api/jobs/{job_id}/download?kind=glossary")
+    assert resp.status_code == 200
+    cd = unquote(resp.headers["content-disposition"])
+    assert "2506.05301v2.术语表.csv" in cd
+
+
+# ---------------------------------------------------------------- retention
+
+
+def test_retention_cleanup_removes_old_terminal_jobs(api, tmp_path):
+    from web.server import retention
+
+    client, web_db, _m, _fm = api
+    old_id = upload(client).json()["job_id"]
+    new_id = upload(client).json()["job_id"]
+    run_id = upload(client).json()["job_id"]
+    old_dt = dt.datetime(2025, 1, 1)
+    web_db.Job.update(status="finished", updated_at=old_dt).where(
+        web_db.Job.job_id == old_id
+    ).execute()
+    web_db.Job.update(status="finished").where(
+        web_db.Job.job_id == new_id
+    ).execute()
+    web_db.Job.update(status="running", updated_at=old_dt).where(
+        web_db.Job.job_id == run_id
+    ).execute()
+    old_path = Path(web_db.Job.get(web_db.Job.job_id == old_id).file_path)
+
+    removed = retention.cleanup_expired_jobs(retention_days=30)
+    assert removed == 1
+    assert web_db.Job.get_or_none(web_db.Job.job_id == old_id) is None
+    assert not old_path.exists()  # upload file removed too
+    assert web_db.Job.get_or_none(web_db.Job.job_id == new_id) is not None
+    assert web_db.Job.get_or_none(web_db.Job.job_id == run_id) is not None
+
+
+def test_retention_disabled_with_zero_days(api):
+    from web.server import retention
+
+    client, web_db, _m, _fm = api
+    job_id = upload(client).json()["job_id"]
+    web_db.Job.update(
+        status="finished", updated_at=dt.datetime(2025, 1, 1)
+    ).where(web_db.Job.job_id == job_id).execute()
+
+    assert retention.cleanup_expired_jobs(retention_days=0) == 0
+    assert web_db.Job.get_or_none(web_db.Job.job_id == job_id) is not None
+
+
 # ---------------------------------------------------------------- settings
 
 

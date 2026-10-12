@@ -18,6 +18,9 @@ services:
       MAX_CONCURRENT_WORKERS: ${MAX_CONCURRENT_WORKERS:-1}
       # Kill a worker subprocess if a single job takes longer than this.
       WORKER_TIMEOUT_SECONDS: ${WORKER_TIMEOUT_SECONDS:-1800}
+      # Auto-delete finished/failed jobs (files + record) older than this
+      # many days; 0 disables cleanup. Prevents unbounded disk growth.
+      JOB_RETENTION_DAYS: ${JOB_RETENTION_DAYS:-30}
     env_file:
       - .env
     volumes:

@@ -21,6 +21,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = BASE_DIR / "runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = RUNTIME_DIR / "babeldoc.db"
+UPLOAD_DIR = RUNTIME_DIR / "uploads"
+OUTPUT_BASE_DIR = RUNTIME_DIR / "outputs"
 
 # WAL + busy_timeout: the API server and the worker subprocess both write to
 # this SQLite file (the worker persists progress several times per second).

@@ -25,21 +25,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from web.server.db import Job, get_settings, init_db, update_settings, utcnow
+from web.server.db import (
+    OUTPUT_BASE_DIR,
+    UPLOAD_DIR,
+    Job,
+    get_settings,
+    init_db,
+    update_settings,
+    utcnow,
+)
 from web.server.manager import (
     WorkerManager,
     build_worker_command as _build_worker_command,
     launch_translate_worker as _launch_worker,
     mark_interrupted_jobs,
 )
+from web.server.retention import start_retention_thread
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 PROJECT_DIR = BASE_DIR.parent
 RUNTIME_DIR = BASE_DIR / "runtime"
-UPLOAD_DIR = RUNTIME_DIR / "uploads"
-OUTPUT_BASE_DIR = RUNTIME_DIR / "outputs"
 STATIC_DIR = BASE_DIR / "static"
 
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
@@ -62,6 +69,7 @@ async def lifespan(_app: FastAPI):
     if interrupted:
         logger.warning("marked %d interrupted job(s) from previous run", interrupted)
     manager.start()
+    start_retention_thread()
     yield
     manager.stop()
 
@@ -304,6 +312,25 @@ def retry_job(job_id: str):
     return {"ok": True, "status": "queued", "queue_position": position}
 
 
+_KIND_SUFFIX = {
+    "mono": "单语",
+    "dual": "双语",
+    "mono_no_wm": "单语-无水印",
+    "dual_no_wm": "双语-无水印",
+    "glossary": "术语表",
+}
+
+
+def _download_filename(row: Job, kind: str) -> str:
+    """Download name based on the original upload name, e.g.
+    ``2506.05301v2.双语-无水印.pdf`` (falls back to the job id)."""
+    stem = Path(row.file_name).stem if row.file_name else ""
+    stem = stem.strip() or row.job_id
+    suffix = _KIND_SUFFIX.get(kind, kind)
+    ext = ".csv" if kind == "glossary" else ".pdf"
+    return f"{stem}.{suffix}{ext}"
+
+
 @app.get("/api/jobs/{job_id}/download")
 def download_result(job_id: str, kind: str):
     row = Job.get_or_none(Job.job_id == job_id)
@@ -319,7 +346,7 @@ def download_result(job_id: str, kind: str):
     target = mapping.get(kind)
     if not target or not Path(target).exists():
         raise HTTPException(status_code=404, detail="文件不可用")
-    return FileResponse(target, filename=Path(target).name)
+    return FileResponse(target, filename=_download_filename(row, kind))
 
 
 @app.get("/api/queue")
