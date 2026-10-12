@@ -43,6 +43,7 @@ from web.server.manager import (
 from web.server.retention import start_retention_thread
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)  # INFO from our modules should reach uvicorn's stderr
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 PROJECT_DIR = BASE_DIR.parent
