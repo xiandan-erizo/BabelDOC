@@ -215,6 +215,51 @@ def test_delete_refuses_running_job(api):
     assert resp.status_code == 409
 
 
+# ------------------------------------------------------------------- retry
+
+
+def test_retry_failed_job_requeues_with_stored_upload(api):
+    client, web_db, _m, fake_manager = api
+    job_id = upload(client).json()["job_id"]
+    web_db.Job.update(status="error", error="boom").where(
+        web_db.Job.job_id == job_id
+    ).execute()
+
+    resp = client.post(f"/api/jobs/{job_id}/retry")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["status"] == "queued"
+
+    row = web_db.Job.get(web_db.Job.job_id == job_id)
+    assert row.status == "queued"
+    assert row.error is None
+    assert row.progress == 0.0
+    assert row.started_at is None
+    assert Path(row.file_path).is_file()  # upload kept for the retry
+    assert fake_manager.enqueued == [job_id, job_id]  # initial + retry
+
+
+def test_retry_rejects_non_error_job(api):
+    client, _db, _m, _fm = api
+    job_id = upload(client).json()["job_id"]  # still queued
+    resp = client.post(f"/api/jobs/{job_id}/retry")
+    assert resp.status_code == 409
+
+
+def test_retry_missing_upload_requests_manual_resubmit(api):
+    client, web_db, _m, _fm = api
+    job_id = upload(client).json()["job_id"]
+    web_db.Job.update(status="error").where(
+        web_db.Job.job_id == job_id
+    ).execute()
+    Path(web_db.Job.get(web_db.Job.job_id == job_id).file_path).unlink()
+
+    resp = client.post(f"/api/jobs/{job_id}/retry")
+    assert resp.status_code == 404
+    assert "重新上传" in resp.json()["detail"]
+
+
 # ---------------------------------------------------------------- settings
 
 

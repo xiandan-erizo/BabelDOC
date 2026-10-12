@@ -17,15 +17,17 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project
+# Copy project (web/ is copied after pip install so UI-only changes don't
+# invalidate the heavy dependency layer)
 COPY pyproject.toml README.md /app/
 COPY babeldoc /app/babeldoc
-COPY web /app/web
 
 # Install server deps and project
 RUN pip install --upgrade pip \
     && pip install fastapi uvicorn[standard] python-multipart \
     && pip install -e .
+
+COPY web /app/web
 
 EXPOSE 8000
 

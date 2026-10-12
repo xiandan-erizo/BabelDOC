@@ -265,6 +265,45 @@ def delete_job(job_id: str):
     return {"ok": True}
 
 
+@app.post("/api/jobs/{job_id}/retry")
+def retry_job(job_id: str):
+    """Re-queue a failed job with its original parameters and stored upload."""
+    row = Job.get_or_none(Job.job_id == job_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if row.status != "error":
+        raise HTTPException(status_code=409, detail="只能重新提交失败的任务")
+    upload = Path(row.file_path) if row.file_path else None
+    if not upload or not upload.is_file():
+        raise HTTPException(
+            status_code=404, detail="原始上传文件已被清理，请重新上传 PDF"
+        )
+
+    # drop any stale outputs from the failed attempt
+    output_dir = OUTPUT_BASE_DIR / job_id
+    if output_dir.exists():
+        shutil.rmtree(output_dir, ignore_errors=True)
+
+    row.status = "queued"
+    row.progress = 0.0
+    row.stage = None
+    row.stage_current = 0
+    row.stage_total = 0
+    row.error = None
+    row.mono_pdf = None
+    row.dual_pdf = None
+    row.mono_no_wm = None
+    row.dual_no_wm = None
+    row.glossary_csv = None
+    row.total_seconds = None
+    row.started_at = None
+    row.updated_at = utcnow()
+    row.save()
+
+    position = manager.enqueue(job_id)
+    return {"ok": True, "status": "queued", "queue_position": position}
+
+
 @app.get("/api/jobs/{job_id}/download")
 def download_result(job_id: str, kind: str):
     row = Job.get_or_none(Job.job_id == job_id)

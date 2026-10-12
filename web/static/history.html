@@ -118,7 +118,10 @@
               if (j.results.glossary) items.push(`<a href="${downloadUrl(j.job_id, "glossary")}" title="术语表 CSV">术语</a>`);
               actions = `<span style="display:inline-flex;gap:7px;font-size:12.5px">${items.join("")}</span>`;
             } else if (j.status === "error") {
-              actions = `<span class="kv" title="${escapeHtml(j.error || "")}">失败原因</span>`;
+              actions = `<button class="btn btn--sm" data-retry="${escapeHtml(
+                j.job_id
+              )}" type="button" title="用原文件和原参数重新翻译">↻ 重新提交</button>
+              <span class="kv" title="${escapeHtml(j.error || "")}">失败原因</span>`;
             }
             const canDelete = j.status !== "running";
             actions += ` ${
@@ -149,10 +152,23 @@
           })
           .join("");
 
-        // wire up delete buttons
+        // wire up delete + retry buttons
         tbody.querySelectorAll("[data-del]").forEach((btn) =>
           btn.addEventListener("click", () => removeJob(btn.dataset.del))
         );
+        tbody.querySelectorAll("[data-retry]").forEach((btn) =>
+          btn.addEventListener("click", () => retryJob(btn.dataset.retry))
+        );
+      }
+
+      async function retryJob(jobId) {
+        try {
+          await api(`/api/jobs/${jobId}/retry`, { method: "POST" });
+          toast("已重新提交", "ok");
+          load();
+        } catch (e) {
+          toast(e.message, "err");
+        }
       }
 
       async function removeJob(jobId) {
