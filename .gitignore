@@ -50,3 +50,9 @@ temp.jpg
 .codex
 .repomap.tags.cache.v1/
 
+
+# local web-service dev state
+.localhome/
+web/runtime/uploads/
+web/runtime/babeldoc.db-wal
+web/runtime/babeldoc.db-shm

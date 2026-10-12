@@ -3,119 +3,224 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BabelDOC 设置</title>
-    <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
-      header { padding: 16px 24px; border-bottom: 1px solid #1f2937; }
-      main { max-width: 880px; margin: 0 auto; padding: 24px; }
-      .card { background: #0b1222; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; margin-bottom: 20px; }
-      label { display: block; margin: 10px 0 6px; font-weight: 600; }
-      input[type="text"], input[type="number"], input[type="password"] { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #334155; background: #0a0f1f; color: #e2e8f0; }
-      button { background: #2563eb; color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; }
-      button:disabled { opacity: 0.6; cursor: not-allowed; }
-      .muted { color: #94a3b8; font-size: 14px; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-      nav a { color: #93c5fd; margin-right: 12px; }
-    </style>
+    <title>设置 · BabelDOC</title>
+    <link rel="stylesheet" href="/assets/base.css" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234f46e5'/%3E%3Cpath d='M9 8h14v6a7 7 0 0 1-7 7 7 7 0 0 1-7-7z' fill='none' stroke='%23fff' stroke-width='2'/%3E%3Cpath d='M12 23h12M15 27h8' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E" />
   </head>
   <body>
-    <header>
-      <h1>系统设置</h1>
-      <div class="muted">敏感配置仅在后端保存，不会在前端显示。</div>
-      <nav>
-        <a href="/">主页</a>
-        <a href="/history.html">任务</a>
-        <a href="/settings.html">设置</a>
-      </nav>
-    </header>
-    <main>
-      <div class="card">
-        <form id="form">
-          <div class="row">
-            <div>
-              <label>默认 QPS（仅展示，可覆盖）</label>
-              <input id="default_qps" type="number" min="1" value="4" />
-              <div class="muted">从后端读取当前默认值；留空则不更新。</div>
-            </div>
-            <div></div>
-          </div>
-
-          <label>OpenAI Base URL</label>
-          <input id="base_url" type="text" placeholder="例如：https://api.openai.com/v1" />
-          <div class="muted">不会显示当前值；填写后将更新后端设置。</div>
-
-          <label>OpenAI 模型</label>
-          <input id="model" type="text" placeholder="例如：gpt-4o-mini" />
-          <div class="muted">不会显示当前值；填写后将更新后端设置。</div>
-
-          <label>OpenAI API Key</label>
-          <input id="api_key" type="password" placeholder="sk-..." />
-          <div class="muted">不会显示当前值；此处仅用于更新，提交后保存在后端。</div>
-
-          <div style="margin-top: 14px;">
-            <button id="submit" type="submit">保存设置</button>
-            <span id="status" class="muted" style="margin-left: 12px;"></span>
-          </div>
-        </form>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="/">
+          <span class="brand__logo">
+            <svg width="17" height="17" viewBox="0 0 32 32" fill="none">
+              <path d="M9 8h14v6a7 7 0 0 1-7 7 7 7 0 0 1-7-7z" stroke="#fff" stroke-width="2.4"/>
+              <path d="M12 23h12M15 27h8" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+            </svg>
+          </span>
+          BabelDOC 翻译
+        </a>
+        <nav class="nav">
+          <a href="/">翻译</a>
+          <a href="/history.html">任务</a>
+          <a href="/settings.html" class="is-active">设置</a>
+        </nav>
       </div>
+    </header>
+
+    <main class="main" style="max-width: 760px">
+      <!-- ================================================= model provider -->
+      <section class="card">
+        <h1 class="card__title">模型服务</h1>
+        <p class="card__sub">
+          配置 OpenAI 兼容接口的地址与密钥。密钥仅保存在服务端数据库中，页面不会回显明文。
+        </p>
+
+        <div class="field">
+          <label for="base_url">Base URL</label>
+          <input class="input" id="base_url" type="text" placeholder="https://api.openai.com/v1" />
+          <div class="field__hint">OpenAI 兼容地址，通常以 /v1 结尾</div>
+        </div>
+
+        <div class="field">
+          <label for="api_key">API Key</label>
+          <input class="input" id="api_key" type="password" placeholder="sk-..." autocomplete="new-password" />
+          <div class="field__hint" id="keyHint"></div>
+        </div>
+
+        <div class="field">
+          <label for="model">默认模型</label>
+          <select class="select" id="model"></select>
+          <div class="field__hint" id="modelHint">用于翻译任务；提交任务时也可以临时选择其他模型</div>
+        </div>
+        <div class="field" id="customModelField" style="display: none">
+          <label for="customModel">自定义模型名称</label>
+          <input class="input" id="customModel" type="text" placeholder="例如 qwen2.5-72b-instruct" />
+        </div>
+
+        <div class="meta-line" style="margin-top: 18px">
+          <button class="btn" id="testBtn" type="button">🔌 测试连接</button>
+          <button class="btn btn--primary" id="saveBtn" type="button">保存设置</button>
+        </div>
+
+        <div id="testResult" style="display: none"></div>
+        <div id="saveResult" style="display: none"></div>
+      </section>
+
+      <!-- ================================================== default params -->
+      <section class="card">
+        <h1 class="card__title">翻译默认值</h1>
+        <p class="card__sub">新建任务表单的初始值，提交时仍可单独调整。</p>
+
+        <div class="row-2">
+          <div class="field">
+            <label for="default_qps">默认 QPS</label>
+            <input class="input" id="default_qps" type="number" min="1" max="20" value="4" />
+          </div>
+          <div class="field">
+            <label for="default_wm">默认水印模式</label>
+            <select class="select" id="default_wm">
+              <option value="watermarked">添加水印（默认）</option>
+              <option value="no_watermark">无水印</option>
+              <option value="both">水印 + 无水印都要</option>
+            </select>
+          </div>
+        </div>
+
+        <button class="btn btn--primary" id="saveDefaultsBtn" type="button">保存默认值</button>
+        <div id="defaultsResult" style="display: none"></div>
+      </section>
     </main>
-    <footer>
-      BabelDOC 设置页 · 仅供内部管理
+
+    <footer class="site-footer">
+      密钥仅存储在服务端 SQLite 数据库中 · 前端仅显示掩码（sk-••••xxxx）
     </footer>
 
+    <script src="/assets/app.js"></script>
     <script>
-      const form = document.getElementById('form');
-      const defaultQpsEl = document.getElementById('default_qps');
-      const baseUrlEl = document.getElementById('base_url');
-      const modelEl = document.getElementById('model');
-      const apiKeyEl = document.getElementById('api_key');
-      const submitBtn = document.getElementById('submit');
-      const statusEl = document.getElementById('status');
+      const $ = (id) => document.getElementById(id);
 
-      async function loadPublicSettings() {
-        try {
-          const resp = await fetch('/api/settings');
-          if (!resp.ok) return;
-          const data = await resp.json();
-          if (typeof data.default_qps === 'number') {
-            defaultQpsEl.value = String(data.default_qps);
-          }
-        } catch (e) {}
+      function banner(el, ok, html) {
+        el.style.display = "block";
+        el.className = "banner " + (ok ? "banner--ok" : "banner--err");
+        el.innerHTML = html;
       }
 
-      loadPublicSettings();
-
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        submitBtn.disabled = true;
-        statusEl.textContent = '';
-
-        const payload = {};
-        const qpsVal = defaultQpsEl.value.trim();
-        if (qpsVal) payload.default_qps = Number(qpsVal);
-        const baseUrlVal = baseUrlEl.value.trim();
-        if (baseUrlVal) payload.openai_base_url = baseUrlVal;
-        const modelVal = modelEl.value.trim();
-        if (modelVal) payload.openai_model = modelVal;
-        const keyVal = apiKeyEl.value.trim();
-        if (keyVal) payload.openai_api_key = keyVal;
-
+      async function load() {
         try {
-          const resp = await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          if (!resp.ok) throw new Error('保存失败');
-          const data = await resp.json();
-          statusEl.textContent = `已保存，更新时间：${data.updated_at || ''}`;
-          apiKeyEl.value = '';
-        } catch (err) {
-          statusEl.textContent = err.message || String(err);
+          const s = await api("/api/settings");
+          $("base_url").value = s.base_url || "";
+          $("keyHint").textContent = s.key_configured
+            ? `已配置密钥（${s.key_hint}）· 留空则保持不变`
+            : "尚未配置密钥";
+          $("default_qps").value = s.default_qps || 4;
+          $("default_wm").value = s.default_watermark_mode || "watermarked";
+          const ok = await fillModelOptions($("model"), s.model, true);
+          $("modelHint").textContent = ok
+            ? "列表来自模型服务的 /models 接口"
+            : "无法获取模型列表（" + escapeHtml(s.base_url || "") + "），可保存后重试或手动输入";
+        } catch (e) {
+          banner($("saveResult"), false, "读取设置失败：" + escapeHtml(e.message));
+        }
+      }
+
+      $("model").addEventListener("change", () => {
+        const custom = $("model").value === "__custom__";
+        $("customModelField").style.display = custom ? "block" : "none";
+        if (custom) $("customModel").focus();
+      });
+
+      function currentModelValue() {
+        return $("model").value === "__custom__"
+          ? $("customModel").value.trim()
+          : $("model").value;
+      }
+
+      // ------------------------------------------------------------- test
+      $("testBtn").addEventListener("click", async () => {
+        const btn = $("testBtn");
+        btn.classList.add("is-loading");
+        btn.disabled = true;
+        $("testResult").style.display = "none";
+        try {
+          const payload = {};
+          if ($("base_url").value.trim()) payload.base_url = $("base_url").value.trim();
+          if ($("api_key").value.trim()) payload.api_key = $("api_key").value.trim();
+          const r = await api("/api/settings/test", { method: "POST", json: payload });
+          banner(
+            $("testResult"),
+            true,
+            `<b>连接成功</b> · ${r.model_count} 个可用模型 · 延迟 ${r.latency_ms}ms<br/>
+             <span style="font-size:12.5px;opacity:.85">示例：${r.sample
+               .map(escapeHtml)
+               .join("、")}${r.model_count > r.sample.length ? " …" : ""}</span>`
+          );
+          // refresh the model dropdown with the freshly fetched list
+          const target = currentModelValue() || r.sample[0];
+          if (target) await fillModelOptions($("model"), target, true);
+        } catch (e) {
+          banner($("testResult"), false, "<b>连接失败：</b>" + escapeHtml(e.message));
         } finally {
-          submitBtn.disabled = false;
+          btn.classList.remove("is-loading");
+          btn.disabled = false;
         }
       });
+
+      // ------------------------------------------------------------- save
+      async function saveSettings(fields) {
+        return api("/api/settings", { method: "POST", json: fields });
+      }
+
+      $("saveBtn").addEventListener("click", async () => {
+        const btn = $("saveBtn");
+        btn.classList.add("is-loading");
+        btn.disabled = true;
+        try {
+          const fields = { base_url: $("base_url").value.trim(), model: currentModelValue() };
+          const key = $("api_key").value.trim();
+          if (key) fields.api_key = key;
+          const r = await saveSettings(fields);
+          const view = r.settings || {};
+          toast("已保存", "ok");
+          banner(
+            $("saveResult"),
+            true,
+            `<b>已保存</b> · ${escapeHtml(view.base_url)} · 模型 ${escapeHtml(
+              view.model
+            )} · 密钥 ${view.key_hint || "未配置"}`
+          );
+          $("api_key").value = "";
+          $("keyHint").textContent = view.key_configured
+            ? `已配置密钥（${view.key_hint}）· 留空则保持不变`
+            : "尚未配置密钥";
+          await fillModelOptions($("model"), view.model, true);
+        } catch (e) {
+          banner($("saveResult"), false, "保存失败：" + escapeHtml(e.message));
+        } finally {
+          btn.classList.remove("is-loading");
+          btn.disabled = false;
+        }
+      });
+
+      $("saveDefaultsBtn").addEventListener("click", async () => {
+        const btn = $("saveDefaultsBtn");
+        btn.classList.add("is-loading");
+        btn.disabled = true;
+        try {
+          await saveSettings({
+            default_qps: Number($("default_qps").value) || 4,
+            default_watermark_mode: $("default_wm").value,
+          });
+          toast("默认值已保存", "ok");
+          banner($("defaultsResult"), true, "<b>已保存</b> · 新任务将默认使用这些参数");
+        } catch (e) {
+          banner($("defaultsResult"), false, "保存失败：" + escapeHtml(e.message));
+        } finally {
+          btn.classList.remove("is-loading");
+          btn.disabled = false;
+        }
+      });
+
+      load();
     </script>
   </body>
-  </html>
+</html>

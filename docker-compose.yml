@@ -3,6 +3,9 @@ services:
     build: .
     ports:
       - "8000:8000"
+    # tini as PID 1: forwards signals properly and reaps any orphaned
+    # worker processes, so no zombies can accumulate inside the container.
+    init: true
     environment:
       # Provide OpenAI key here or at runtime: `OPENAI_API_KEY=sk-...`
       OPENAI_API_KEY: ${OPENAI_API_KEY}
@@ -10,12 +13,16 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       DEFAULT_QPS: ${DEFAULT_QPS:-4}
+      # How many translation subprocesses may run at once (each loads the
+      # layout ONNX model, ~several hundred MB; keep 1 unless you have RAM).
+      MAX_CONCURRENT_WORKERS: ${MAX_CONCURRENT_WORKERS:-1}
+      # Kill a worker subprocess if a single job takes longer than this.
+      WORKER_TIMEOUT_SECONDS: ${WORKER_TIMEOUT_SECONDS:-1800}
     env_file:
       - .env
     volumes:
-      # Persist cache and outputs across runs (optional)
+      # Persist cache (babeldoc assets/fonts) and runtime (uploads/outputs/DB)
       - babeldoc_cache:/root/.cache/babeldoc
-      # Persist runtime uploads/outputs and SQLite DB
       - babeldoc_runtime:/app/web/runtime
     restart: unless-stopped
     healthcheck:

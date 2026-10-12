@@ -3,215 +3,463 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BabelDOC Web UI</title>
-    <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
-      header { padding: 16px 24px; border-bottom: 1px solid #1f2937; }
-      main { max-width: 880px; margin: 0 auto; padding: 24px; }
-      .card { background: #0b1222; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; margin-bottom: 20px; }
-      label { display: block; margin: 10px 0 6px; font-weight: 600; }
-      input[type="text"], input[type="number"], select { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #334155; background: #0a0f1f; color: #e2e8f0; }
-      input[type="file"] { padding: 8px; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-      button { background: #2563eb; color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; }
-      button:disabled { opacity: 0.6; cursor: not-allowed; }
-      .progress { margin-top: 12px; }
-      progress { width: 100%; height: 16px; }
-      .muted { color: #94a3b8; font-size: 14px; }
-      .links a { display: inline-block; margin-right: 10px; color: #93c5fd; }
-      .stage { font-size: 14px; margin-top: 6px; }
-      .checkboxes { display: flex; gap: 16px; }
-      nav a { color: #93c5fd; margin-right: 12px; }
-      .checkboxes label { display: flex; align-items: center; gap: 8px; font-weight: 500; }
-      footer { padding: 24px; text-align: center; color: #64748b; }
-    </style>
+    <title>翻译 · BabelDOC</title>
+    <link rel="stylesheet" href="/assets/base.css" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234f46e5'/%3E%3Cpath d='M9 8h14v6a7 7 0 0 1-7 7 7 7 0 0 1-7-7z' fill='none' stroke='%23fff' stroke-width='2'/%3E%3Cpath d='M12 23h12M15 27h8' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E" />
   </head>
   <body>
-    <header>
-      <h1>BabelDOC Web UI</h1>
-      <div class="muted">上传 PDF，选择语言与模型，在线生成译文 PDF。</div>
-      <nav>
-        <a href="/">主页</a>
-        <a href="/history.html">任务</a>
-        <a href="/settings.html">设置</a>
-      </nav>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="/">
+          <span class="brand__logo">
+            <svg width="17" height="17" viewBox="0 0 32 32" fill="none">
+              <path d="M9 8h14v6a7 7 0 0 1-7 7 7 7 0 0 1-7-7z" stroke="#fff" stroke-width="2.4"/>
+              <path d="M12 23h12M15 27h8" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+            </svg>
+          </span>
+          BabelDOC 翻译
+        </a>
+        <nav class="nav">
+          <a href="/" class="is-active">翻译</a>
+          <a href="/history.html">任务</a>
+          <a href="/settings.html">设置</a>
+        </nav>
+      </div>
     </header>
-    <main>
-      <div class="card">
-        <form id="form">
-          <label>PDF 文件</label>
-          <input id="file" type="file" accept="application/pdf" required />
 
-          <div class="row">
-            <div>
-              <label>源语言(lang_in)</label>
-              <input id="lang_in" type="text" value="en" />
+    <main class="main">
+      <div class="grid-2">
+        <!-- ==================================================== left: form -->
+        <section class="card">
+          <h1 class="card__title">新建翻译</h1>
+          <p class="card__sub">上传 PDF，选择语言与模型；任务会在后台排队执行，完成后可直接下载。</p>
+
+          <div class="drop" id="drop">
+            <div class="drop__icon">📄</div>
+            <div class="drop__main">拖拽 PDF 到此处，或点击选择文件</div>
+            <div class="drop__sub">仅支持 .pdf，最大 200 MB</div>
+            <input id="file" type="file" accept="application/pdf,.pdf" hidden />
+          </div>
+          <div id="fileChip" class="file-chip" style="display: none">
+            <span class="file-chip__icon">📄</span>
+            <span class="file-chip__name" id="chipName"></span>
+            <span class="file-chip__size" id="chipSize"></span>
+            <button class="file-chip__x" id="chipX" type="button" title="移除文件">✕</button>
+          </div>
+
+          <div style="margin-top: 16px" class="row-2">
+            <div class="field">
+              <label for="lang_in">源语言</label>
+              <select class="select" id="lang_in"></select>
             </div>
-            <div>
-              <label>目标语言(lang_out)</label>
-              <input id="lang_out" type="text" value="zh" />
+            <div class="field">
+              <label for="lang_out">目标语言</label>
+              <select class="select" id="lang_out"></select>
             </div>
           </div>
 
-          <div class="row">
-            <div>
-              <label>QPS</label>
-              <input id="qps" type="number" min="1" value="4" />
+          <div class="field">
+            <label for="model">模型</label>
+            <select class="select" id="model"></select>
+            <div class="field__hint" id="modelHint"></div>
+          </div>
+          <div class="field" id="customModelField" style="display: none">
+            <label for="customModel">自定义模型名称</label>
+            <input class="input" id="customModel" type="text" placeholder="例如 qwen2.5-72b-instruct" />
+          </div>
+
+          <details style="margin: 14px 0 4px">
+            <summary style="cursor: pointer; font-size: 13.5px; color: var(--muted); user-select: none">
+              高级选项
+            </summary>
+            <div style="padding-top: 12px">
+              <div class="row-2">
+                <div class="field">
+                  <label for="qps">QPS（并发限制）</label>
+                  <input class="input" id="qps" type="number" min="1" max="20" value="4" />
+                  <div class="field__hint">控制请求模型的频率，避免触发限流</div>
+                </div>
+                <div class="field">
+                  <label for="wm">输出水印</label>
+                  <select class="select" id="wm">
+                    <option value="watermarked">添加水印（默认）</option>
+                    <option value="no_watermark">无水印</option>
+                    <option value="both">水印 + 无水印都要</option>
+                  </select>
+                </div>
+              </div>
+              <div style="display: flex; gap: 20px; margin-top: 4px">
+                <label class="check"><input type="checkbox" id="out_dual" checked /> 输出双语 PDF</label>
+                <label class="check"><input type="checkbox" id="out_mono" checked /> 输出单语 PDF</label>
+              </div>
+              <div class="field__hint">双语文档保留原文，便于对照校验；单语为纯译文。</div>
             </div>
-            <div></div>
-          </div>
+          </details>
 
-          <div class="checkboxes">
-            <label><input id="no_dual" type="checkbox" /> 不输出双语 PDF</label>
-            <label><input id="no_mono" type="checkbox" /> 不输出单语 PDF</label>
-          </div>
+          <div id="formError" class="banner banner--err" style="display: none"></div>
 
-          <div style="margin-top: 14px;">
-            <button id="submit" type="submit">开始翻译</button>
+          <div style="margin-top: 16px">
+            <button class="btn btn--primary btn--block" id="submit" type="button">开始翻译</button>
           </div>
-        </form>
+        </section>
 
-        <div class="progress" id="progress" style="display: none;">
-          <div>总体进度</div>
-          <progress id="bar" max="100" value="0"></progress>
-          <div class="stage" id="stage"></div>
+        <!-- ============================================== right: job panel -->
+        <div>
+          <section class="card" id="jobCard">
+            <div id="jobEmpty" class="empty">
+              <div class="empty__icon">🗂️</div>
+              提交任务后，这里会实时显示翻译进度
+            </div>
+
+            <div id="jobBody" style="display: none">
+              <div class="meta-line" style="justify-content: space-between; margin-bottom: 6px">
+                <div class="meta-line">
+                  <strong id="jobName" style="font-size: 14.5px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"></strong>
+                </div>
+                <span class="badge" id="jobStatus"></span>
+              </div>
+              <div class="kv" id="jobMeta"></div>
+
+              <div id="jobQueue" class="banner banner--warn" style="display: none"></div>
+              <div id="jobError" class="banner banner--err" style="display: none"></div>
+
+              <div id="progressWrap" style="margin-top: 14px">
+                <div class="meta-line" style="justify-content: space-between; margin-bottom: 6px">
+                  <span class="kv" id="progressStage"></span>
+                  <span class="progress__num" id="progressNum">0%</span>
+                </div>
+                <div class="progress"><div class="progress__bar" id="progressBar"></div></div>
+                <ul class="stages" id="stages"></ul>
+              </div>
+
+              <div id="resultWrap" style="display: none">
+                <div class="banner banner--ok" id="resultBanner"></div>
+                <div class="links" id="resultLinks" style="margin-top: 12px"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="meta-line" style="justify-content: space-between; margin-bottom: 10px">
+              <h2 class="card__title" style="margin: 0">最近任务</h2>
+              <a href="/history.html" style="font-size: 13px">查看全部 →</a>
+            </div>
+            <div id="recentList"></div>
+          </section>
         </div>
       </div>
-
-      <div class="card" id="result" style="display: none;">
-        <h3>结果</h3>
-        <div class="links" id="links"></div>
-        <div class="muted" id="timing"></div>
-      </div>
-
-      <div class="card" id="error" style="display: none;">
-        <h3>错误</h3>
-        <div id="errmsg" style="color:#fecaca"></div>
-      </div>
     </main>
-    <footer>
-      BabelDOC 前端演示 · 仅供开发测试
+
+    <footer class="site-footer">
+      BabelDOC 自托管翻译服务 · 任务在独立进程中执行，结束后自动释放内存
     </footer>
 
+    <script src="/assets/app.js"></script>
     <script>
-      const form = document.getElementById('form');
-      const fileEl = document.getElementById('file');
-      const langIn = document.getElementById('lang_in');
-      const langOut = document.getElementById('lang_out');
-      const qps = document.getElementById('qps');
-      const noDual = document.getElementById('no_dual');
-      const noMono = document.getElementById('no_mono');
-      const progress = document.getElementById('progress');
-      const bar = document.getElementById('bar');
-      const stage = document.getElementById('stage');
-      const result = document.getElementById('result');
-      const links = document.getElementById('links');
-      const timing = document.getElementById('timing');
-      const errorBox = document.getElementById('error');
-      const errmsg = document.getElementById('errmsg');
-      const submitBtn = document.getElementById('submit');
-
+      const $ = (id) => document.getElementById(id);
+      let selectedFile = null;
+      let activeJobId = null;
       let pollTimer = null;
 
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        errorBox.style.display = 'none';
-        result.style.display = 'none';
-        links.innerHTML = '';
-        timing.textContent = '';
+      // ---------------------------------------------------------------- init
+      fillLangOptions($("lang_in"), "en");
+      fillLangOptions($("lang_out"), "zh");
 
-        const file = fileEl.files[0];
-        if (!file) {
-          alert('请选择 PDF 文件');
+      (async () => {
+        try {
+          const s = await api("/api/settings");
+          $("qps").value = s.default_qps || 4;
+          $("wm").value = s.default_watermark_mode || "watermarked";
+          const ok = await fillModelOptions($("model"), s.model, true);
+          if (!ok) {
+            $("modelHint").textContent =
+              "无法从 " + (s.base_url || "模型服务") + " 获取模型列表，可手动输入模型名";
+          }
+          if (!s.key_configured) {
+            const el = $("formError");
+            el.style.display = "block";
+            el.innerHTML =
+              "尚未配置 API Key，请先前往 <a href='/settings.html'>设置页</a> 完成配置。";
+          }
+        } catch (e) {
+          /* settings unavailable — form still usable with defaults */
+        }
+        loadRecent();
+      })();
+
+      $("model").addEventListener("change", () => {
+        const custom = $("model").value === "__custom__";
+        $("customModelField").style.display = custom ? "block" : "none";
+        if (custom) $("customModel").focus();
+      });
+
+      // ---------------------------------------------------------------- file
+      const drop = $("drop");
+      drop.addEventListener("click", () => $("file").click());
+      $("file").addEventListener("change", (e) => setFile(e.target.files[0]));
+      ["dragenter", "dragover"].forEach((ev) =>
+        drop.addEventListener(ev, (e) => {
+          e.preventDefault();
+          drop.classList.add("is-over");
+        })
+      );
+      ["dragleave", "drop"].forEach((ev) =>
+        drop.addEventListener(ev, (e) => {
+          e.preventDefault();
+          drop.classList.remove("is-over");
+        })
+      );
+      drop.addEventListener("drop", (e) => setFile(e.dataTransfer.files[0]));
+
+      function setFile(f) {
+        if (!f) return;
+        if (!/\.pdf$/i.test(f.name) && f.type !== "application/pdf") {
+          toast("请选择 PDF 文件", "err");
           return;
         }
-        submitBtn.disabled = true;
-        progress.style.display = 'block';
-        bar.value = 0;
-        stage.textContent = '';
+        selectedFile = f;
+        $("chipName").textContent = f.name;
+        $("chipSize").textContent = fmtBytes(f.size);
+        $("fileChip").style.display = "flex";
+      }
+
+      $("chipX").addEventListener("click", () => {
+        selectedFile = null;
+        $("file").value = "";
+        $("fileChip").style.display = "none";
+      });
+
+      // -------------------------------------------------------------- submit
+      $("submit").addEventListener("click", async () => {
+        if (!selectedFile) {
+          toast("请先选择 PDF 文件", "err");
+          return;
+        }
+        hideFormError();
+        const btn = $("submit");
+        btn.classList.add("is-loading");
+        btn.disabled = true;
 
         const fd = new FormData();
-        fd.append('file', file);
-        fd.append('lang_in', langIn.value.trim());
-        fd.append('lang_out', langOut.value.trim());
-        fd.append('qps', qps.value.trim());
-        fd.append('no_dual', noDual.checked ? 'true' : 'false');
-        fd.append('no_mono', noMono.checked ? 'true' : 'false');
+        fd.append("file", selectedFile);
+        fd.append("lang_in", $("lang_in").value);
+        fd.append("lang_out", $("lang_out").value);
+        fd.append("qps", $("qps").value || "0");
+        const model =
+          $("model").value === "__custom__"
+            ? $("customModel").value.trim()
+            : $("model").value;
+        fd.append("model", model);
+        fd.append("watermark_output_mode", $("wm").value);
+        fd.append("no_dual", $("out_dual").checked ? "false" : "true");
+        fd.append("no_mono", $("out_mono").checked ? "false" : "true");
 
         try {
-          const resp = await fetch('/api/translate', { method: 'POST', body: fd });
-          if (!resp.ok) {
-            const data = await resp.json().catch(() => ({ detail: resp.statusText }));
-            throw new Error(data.detail || '创建任务失败');
-          }
-          const data = await resp.json();
-          const jobId = data.job_id;
-          startPolling(jobId);
-        } catch (err) {
-          progress.style.display = 'none';
-          submitBtn.disabled = false;
-          errorBox.style.display = 'block';
-          errmsg.textContent = err.message || String(err);
+          const data = await api("/api/translate", { method: "POST", form: fd });
+          activeJobId = data.job_id;
+          showJobPanel();
+          startPolling();
+          loadRecent();
+        } catch (e) {
+          showFormError(e.message);
+        } finally {
+          btn.classList.remove("is-loading");
+          btn.disabled = false;
         }
       });
 
-      function startPolling(jobId) {
-        if (pollTimer) clearInterval(pollTimer);
-        pollTimer = setInterval(async () => {
-          try {
-            const resp = await fetch(`/api/jobs/${jobId}`);
-            if (!resp.ok) throw new Error('查询任务失败');
-            const job = await resp.json();
-            bar.value = job.progress || 0;
-            const sc = job.stage_current ?? 0;
-            const st = job.stage_total ?? 0;
-            const stageName = job.stage || '';
-            stage.textContent = stageName ? `${stageName} (${sc}/${st})` : '';
-
-            if (job.status === 'finished') {
-              clearInterval(pollTimer);
-              submitBtn.disabled = false;
-              renderLinks(jobId, job.result || {});
-              progress.style.display = 'none';
-              result.style.display = 'block';
-            } else if (job.status === 'error') {
-              clearInterval(pollTimer);
-              submitBtn.disabled = false;
-              progress.style.display = 'none';
-              errorBox.style.display = 'block';
-              errmsg.textContent = job.error || '未知错误';
-            }
-          } catch (err) {
-            clearInterval(pollTimer);
-            submitBtn.disabled = false;
-            progress.style.display = 'none';
-            errorBox.style.display = 'block';
-            errmsg.textContent = err.message || String(err);
-          }
-        }, 1000);
+      function showFormError(msg) {
+        const el = $("formError");
+        el.style.display = "block";
+        el.textContent = msg;
+      }
+      function hideFormError() {
+        $("formError").style.display = "none";
       }
 
-      function renderLinks(jobId, res) {
-        links.innerHTML = '';
-        const add = (label, kind, path) => {
-          if (!path) return;
-          const a = document.createElement('a');
-          a.href = `/api/jobs/${jobId}/download?kind=${kind}`;
-          a.textContent = label;
-          a.target = '_blank';
-          links.appendChild(a);
-        };
-        add('下载单语 PDF', 'mono', res.mono_pdf);
-        add('下载双语 PDF', 'dual', res.dual_pdf);
-        add('下载无水印单语', 'mono_no_wm', res.mono_no_wm);
-        add('下载无水印双语', 'dual_no_wm', res.dual_no_wm);
-        add('下载术语表 CSV', 'glossary', res.glossary_csv);
-        if (res.total_seconds) {
-          timing.textContent = `耗时：${res.total_seconds.toFixed ? res.total_seconds.toFixed(2) : res.total_seconds} 秒`;
+      // ------------------------------------------------------------- polling
+      function startPolling() {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(pollJob, 1200);
+        pollJob();
+      }
+
+      async function pollJob() {
+        if (!activeJobId) return;
+        let job;
+        try {
+          job = await api(`/api/jobs/${activeJobId}`);
+        } catch (e) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          renderError(e.message);
+          return;
+        }
+        renderJob(job);
+        if (job.status === "finished" || job.status === "error") {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          loadRecent();
         }
       }
 
-      // 主页精简化：移除历史展示，如需管理请访问设置页
+      // -------------------------------------------------------------- render
+      function showJobPanel() {
+        $("jobEmpty").style.display = "none";
+        $("jobBody").style.display = "block";
+      }
+
+      function renderError(msg) {
+        showJobPanel();
+        $("jobStatus").textContent = "";
+        $("jobStatus").className = "badge badge--error";
+        $("jobStatus").textContent = "失败";
+        $("jobError").style.display = "block";
+        $("jobError").textContent = msg;
+        $("progressWrap").style.display = "none";
+      }
+
+      function renderJob(job) {
+        showJobPanel();
+        const st = statusMeta(job.status);
+        const badge = $("jobStatus");
+        badge.className = "badge " + st.cls;
+        badge.textContent = st.label;
+        $("jobName").textContent = job.file_name || job.job_id.slice(0, 8);
+        $("jobName").title = job.file_name || "";
+
+        const bits = [];
+        bits.push(`${(job.lang_in || "").toUpperCase()} → ${(job.lang_out || "").toUpperCase()}`);
+        if (job.model) bits.push(`模型 ${job.model}`);
+        if (job.qps) bits.push(`QPS ${job.qps}`);
+        $("jobMeta").innerHTML = escapeHtml(bits.join(" · "));
+
+        // queue banner
+        const qb = $("jobQueue");
+        if (job.status === "queued") {
+          qb.style.display = "block";
+          qb.innerHTML =
+            (job.queue_position && job.queue_position > 1
+              ? `排队中 · 前面还有 ${job.queue_position - 1} 个任务`
+              : "排队中 · 等待空闲进程") + "，任务完成后自动开始";
+        } else {
+          qb.style.display = "none";
+        }
+
+        // error banner
+        const eb = $("jobError");
+        if (job.status === "error") {
+          eb.style.display = "block";
+          eb.innerHTML = "<b>翻译失败：</b>" + escapeHtml(job.error || "未知错误");
+        } else {
+          eb.style.display = "none";
+        }
+
+        // progress + stages
+        const showProgress = job.status === "running" || job.status === "queued";
+        $("progressWrap").style.display = showProgress ? "block" : "none";
+        if (showProgress) {
+          const pct = Math.max(0, Math.min(100, job.progress || 0));
+          $("progressBar").style.width = pct + "%";
+          $("progressNum").textContent = pct.toFixed(pct >= 100 ? 0 : 1) + "%";
+          const si = stageInfo(job.stage);
+          $("progressStage").textContent =
+            job.status === "running" && si
+              ? si.label + (job.stage_total ? `（${job.stage_current}/${job.stage_total}）` : "")
+              : "";
+          renderStages(job);
+        }
+
+        // results
+        const rw = $("resultWrap");
+        if (job.status === "finished" && job.result) {
+          rw.style.display = "block";
+          $("resultBanner").innerHTML =
+            "<b>翻译完成！</b> 总耗时 " + fmtDuration(job.result.total_seconds);
+          const links = $("resultLinks");
+          links.innerHTML = "";
+          KIND_LABELS.forEach(([key, kind, label]) => {
+            if (!job.result[key]) return;
+            const a = document.createElement("a");
+            a.href = downloadUrl(job.job_id, kind);
+            a.textContent = "⬇ " + label;
+            links.appendChild(a);
+          });
+          if (!links.children.length) {
+            links.innerHTML = '<span class="kv">没有可下载的输出（输出选项被关闭）</span>';
+          }
+        } else {
+          rw.style.display = "none";
+        }
+      }
+
+      function renderStages(job) {
+        const ul = $("stages");
+        const si = stageInfo(job.stage);
+        const currentIdx = job.status === "running" && si && si.known ? si.index : -1;
+        ul.innerHTML = STAGES.map(([name, label], i) => {
+          let cls = "";
+          if (i < currentIdx) cls = "is-done";
+          else if (i === currentIdx) cls = "is-current";
+          const count =
+            i === currentIdx && job.stage_total
+              ? `<span class="count">${job.stage_current}/${job.stage_total}</span>`
+              : "";
+          return `<li class="${cls}"><span class="dot"></span>${escapeHtml(
+            label
+          )}${count}</li>`;
+        }).join("");
+        if (si && !si.known) {
+          ul.insertAdjacentHTML(
+            "beforeend",
+            `<li class="is-current"><span class="dot"></span>${escapeHtml(si.label)}</li>`
+          );
+        }
+      }
+
+      // ---------------------------------------------------------- recent list
+      async function loadRecent() {
+        try {
+          const jobs = await api("/api/jobs?limit=6");
+          const el = $("recentList");
+          if (!jobs.length) {
+            el.innerHTML = '<div class="empty">还没有任务记录</div>';
+            return;
+          }
+          el.innerHTML = jobs
+            .map((j) => {
+              const st = statusMeta(j.status);
+              const pct = Math.round(j.progress || 0);
+              return `
+                <div class="meta-line" style="justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border)">
+                  <div style="min-width: 0">
+                    <div style="font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px">
+                      ${escapeHtml(j.file_name || j.job_id.slice(0, 10))}
+                    </div>
+                    <div class="kv">${escapeHtml(fmtDateTime(j.created_at))} · ${(j.lang_in || "").toUpperCase()}→${(
+                j.lang_out || ""
+              ).toUpperCase()}</div>
+                  </div>
+                  <div class="meta-line">
+                    <span class="badge ${st.cls}">${st.label}</span>
+                    ${
+                      j.status === "running" || j.status === "queued"
+                        ? `<span class="kv">${pct}%</span>`
+                        : j.status === "finished"
+                        ? '<a href="/history.html" style="font-size:12.5px">下载</a>'
+                        : ""
+                    }
+                  </div>
+                </div>`;
+            })
+            .join("");
+        } catch (e) {
+          /* list is best-effort */
+        }
+      }
+
+      // If a job was running in another tab, keep the recent list fresh
+      setInterval(loadRecent, 15000);
     </script>
   </body>
-  </html>
+</html>
