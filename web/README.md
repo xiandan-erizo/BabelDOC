@@ -47,6 +47,7 @@ SQLite (web/runtime/babeldoc.db) ← 前端轮询进度
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` / `DEFAULT_QPS` | — | 首次建库时种子化到 SQLite |
 | `MAX_CONCURRENT_WORKERS` | `1` | 并发翻译子进程数 |
 | `WORKER_TIMEOUT_SECONDS` | `1800` | 单任务超时（超时 kill） |
+| `JOB_RETENTION_DAYS` | `30` | 已结束/失败任务（含文件）自动清理的天数，`0` 关闭 |
 | `MAX_UPLOAD_BYTES` | `209715200` | 上传大小上限 (200 MB) |
 
 ## 本地开发
