@@ -20,26 +20,26 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body
+from fastapi import FastAPI
+from fastapi import File
+from fastapi import Form
+from fastapi import HTTPException
+from fastapi import UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-
-from web.server.db import (
-    OUTPUT_BASE_DIR,
-    UPLOAD_DIR,
-    Job,
-    get_settings,
-    init_db,
-    update_settings,
-    utcnow,
-)
-from web.server.manager import (
-    WorkerManager,
-    build_worker_command as _build_worker_command,
-    launch_translate_worker as _launch_worker,
-    mark_interrupted_jobs,
-)
+from web.server.db import OUTPUT_BASE_DIR
+from web.server.db import UPLOAD_DIR
+from web.server.db import Job
+from web.server.db import get_settings
+from web.server.db import init_db
+from web.server.db import update_settings
+from web.server.db import utcnow
+from web.server.manager import WorkerManager
+from web.server.manager import build_worker_command as _build_worker_command
+from web.server.manager import launch_translate_worker as _launch_worker
+from web.server.manager import mark_interrupted_jobs
 from web.server.retention import start_retention_thread
 
 logger = logging.getLogger(__name__)
@@ -427,7 +427,7 @@ def _fetch_models_from_provider(
     if not base:
         raise RuntimeError("尚未配置 Base URL")
     url = f"{base}/models"
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310
         url, headers={"Authorization": f"Bearer {api_key}"}
     )
     started = time.monotonic()

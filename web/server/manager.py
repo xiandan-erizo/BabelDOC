@@ -25,7 +25,8 @@ import time
 from collections import deque
 from pathlib import Path
 
-from web.server.db import Job, utcnow
+from web.server.db import Job
+from web.server.db import utcnow
 
 logger = logging.getLogger(__name__)
 

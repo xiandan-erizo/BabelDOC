@@ -3,19 +3,16 @@ from __future__ import annotations
 import datetime as dt
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
-from peewee import (
-    SqliteDatabase,
-    Model,
-    IntegerField,
-    CharField,
-    FloatField,
-    BooleanField,
-    TextField,
-    DateTimeField,
-)
-
+from peewee import BooleanField
+from peewee import CharField
+from peewee import DateTimeField
+from peewee import FloatField
+from peewee import IntegerField
+from peewee import Model
+from peewee import SqliteDatabase
+from peewee import TextField
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = BASE_DIR / "runtime"
@@ -131,7 +128,7 @@ def init_db() -> None:
         env_base = os.getenv("OPENAI_BASE_URL") or None
         env_model = os.getenv("OPENAI_MODEL") or None
         env_qps = os.getenv("DEFAULT_QPS") or None
-        updates: Dict[str, Any] = {}
+        updates: dict[str, Any] = {}
         if env_key is not None:
             updates["openai_api_key"] = env_key
         if env_base:
@@ -154,13 +151,13 @@ def get_settings() -> SystemSettings:
 
 def update_settings(
     *,
-    openai_api_key: Optional[str] = None,
-    openai_base_url: Optional[str] = None,
-    openai_model: Optional[str] = None,
-    default_qps: Optional[int] = None,
-    default_watermark_mode: Optional[str] = None,
+    openai_api_key: str | None = None,
+    openai_base_url: str | None = None,
+    openai_model: str | None = None,
+    default_qps: int | None = None,
+    default_watermark_mode: str | None = None,
 ) -> SystemSettings:
-    updates: Dict[str, Any] = {}
+    updates: dict[str, Any] = {}
     if openai_api_key is not None:
         updates["openai_api_key"] = openai_api_key
     if openai_base_url is not None and openai_base_url.strip():

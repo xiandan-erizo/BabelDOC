@@ -1,6 +1,5 @@
 """Tests for the WorkerManager: queueing, serialization, reaping, timeouts."""
 
-import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -14,7 +13,7 @@ def isolated_home(monkeypatch, tmp_path):
 
 
 @pytest.fixture()
-def manager_db(monkeypatch, tmp_path):
+def manager_db(tmp_path):
     from web.server import db as web_db
 
     test_db_path = tmp_path / "babeldoc.db"
@@ -41,7 +40,7 @@ def make_job(db, job_id: str, status: str = "queued") -> None:
         watermark_output_mode="watermarked",
         no_dual=False,
         no_mono=False,
-        file_path="/tmp/fake.pdf",
+        file_path="fake.pdf",
     )
 
 
@@ -57,10 +56,10 @@ def patched_command(monkeypatch, script: str, *args: str) -> None:
     )
 
 
-def test_enqueue_dequeue_position(manager_db):
+def test_enqueue_dequeue_position(manager_db):  # noqa: ARG001
     from web.server.manager import WorkerManager
 
-    m = WorkerManager(Path("."), max_workers=1, poll_interval=0.01)
+    m = WorkerManager(Path(), max_workers=1, poll_interval=0.01)
     assert m.enqueue("job-a") == 1
     assert m.enqueue("job-b") == 2
     assert m.position("job-a") == 1
@@ -73,12 +72,12 @@ def test_enqueue_dequeue_position(manager_db):
     assert m.max_workers == 1
 
 
-def test_manager_serializes_jobs_and_reaps(manager_db, monkeypatch, tmp_path):
+def test_manager_serializes_jobs_and_reaps(manager_db, monkeypatch):
     """Jobs run one at a time; exited children are reaped and don't override
     a terminal status the worker itself wrote to the DB."""
     real_db_path = str(manager_db.db.database)
     script = (
-        "import sqlite3,time,sys;"
+        "import sqlite3,time,sys;"  # noqa: S608
         f"time.sleep(0.3);"
         f"con=sqlite3.connect({str(real_db_path)!r});"
         "con.execute('update job set status=?, progress=100.0 where job_id=?',"
@@ -92,7 +91,7 @@ def test_manager_serializes_jobs_and_reaps(manager_db, monkeypatch, tmp_path):
     make_job(manager_db, "job-1")
     make_job(manager_db, "job-2")
 
-    m = WorkerManager(Path("."), max_workers=1, poll_interval=0.01)
+    m = WorkerManager(Path(), max_workers=1, poll_interval=0.01)
     m.enqueue("job-1")
     m.enqueue("job-2")
 
@@ -122,7 +121,7 @@ def test_manager_marks_crashed_worker_as_error(manager_db, monkeypatch):
 
     from web.server.manager import WorkerManager
 
-    m = WorkerManager(Path("."), max_workers=1, poll_interval=0.01)
+    m = WorkerManager(Path(), max_workers=1, poll_interval=0.01)
     m.enqueue("job-crash")
     m._dispatch_once()
     time.sleep(0.2)
@@ -139,7 +138,7 @@ def test_manager_timeout_kills_worker(manager_db, monkeypatch):
 
     from web.server.manager import WorkerManager
 
-    m = WorkerManager(Path("."), max_workers=1, poll_interval=0.01)
+    m = WorkerManager(Path(), max_workers=1, poll_interval=0.01)
     m.enqueue("job-slow")
     m._dispatch_once()
 
@@ -163,7 +162,7 @@ def test_manager_kills_lingering_worker_after_terminal_state(manager_db, monkeyp
     non-daemon threads alive) must be killed after the grace period."""
     real_db_path = str(manager_db.db.database)
     script = (
-        "import sqlite3,time,sys;"
+        "import sqlite3,time,sys;"  # noqa: S608
         f"con=sqlite3.connect({real_db_path!r});"
         "con.execute('update job set status=? where job_id=?',('finished', sys.argv[1]));"
         "con.commit();"
@@ -175,7 +174,7 @@ def test_manager_kills_lingering_worker_after_terminal_state(manager_db, monkeyp
     from web.server.manager import WorkerManager
 
     m = WorkerManager(
-        Path("."), max_workers=1, poll_interval=0.01, terminal_grace_seconds=0.1
+        Path(), max_workers=1, poll_interval=0.01, terminal_grace_seconds=0.1
     )
     m.enqueue("job-linger")
     m._dispatch_once()
@@ -219,7 +218,7 @@ def test_running_job_sets_started_at(manager_db, monkeypatch):
     make_job(manager_db, "job-start")
     from web.server.manager import WorkerManager
 
-    m = WorkerManager(Path("."), max_workers=1, poll_interval=0.01)
+    m = WorkerManager(Path(), max_workers=1, poll_interval=0.01)
     m.enqueue("job-start")
     m._dispatch_once()
 
