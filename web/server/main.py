@@ -20,26 +20,26 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body
+from fastapi import FastAPI
+from fastapi import File
+from fastapi import Form
+from fastapi import HTTPException
+from fastapi import UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-
-from web.server.db import (
-    OUTPUT_BASE_DIR,
-    UPLOAD_DIR,
-    Job,
-    get_settings,
-    init_db,
-    update_settings,
-    utcnow,
-)
-from web.server.manager import (
-    WorkerManager,
-    build_worker_command as _build_worker_command,
-    launch_translate_worker as _launch_worker,
-    mark_interrupted_jobs,
-)
+from web.server.db import OUTPUT_BASE_DIR
+from web.server.db import UPLOAD_DIR
+from web.server.db import Job
+from web.server.db import get_settings
+from web.server.db import init_db
+from web.server.db import update_settings
+from web.server.db import utcnow
+from web.server.manager import WorkerManager
+from web.server.manager import build_worker_command as _build_worker_command
+from web.server.manager import launch_translate_worker as _launch_worker
+from web.server.manager import mark_interrupted_jobs
 from web.server.retention import start_retention_thread
 
 logger = logging.getLogger(__name__)
@@ -316,15 +316,15 @@ def retry_job(job_id: str):
 _KIND_SUFFIX = {
     "mono": "单语",
     "dual": "双语",
-    "mono_no_wm": "单语-无水印",
-    "dual_no_wm": "双语-无水印",
+    "mono_no_wm": "单语 - 无水印",
+    "dual_no_wm": "双语 - 无水印",
     "glossary": "术语表",
 }
 
 
 def _download_filename(row: Job, kind: str) -> str:
     """Download name based on the original upload name, e.g.
-    ``2506.05301v2.双语-无水印.pdf`` (falls back to the job id)."""
+    ``2506.05301v2.双语 - 无水印.pdf`` (falls back to the job id)."""
     stem = Path(row.file_name).stem if row.file_name else ""
     stem = stem.strip() or row.job_id
     suffix = _KIND_SUFFIX.get(kind, kind)
@@ -427,7 +427,7 @@ def _fetch_models_from_provider(
     if not base:
         raise RuntimeError("尚未配置 Base URL")
     url = f"{base}/models"
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310
         url, headers={"Authorization": f"Bearer {api_key}"}
     )
     started = time.monotonic()
@@ -441,7 +441,7 @@ def _fetch_models_from_provider(
             detail = ""
         raise RuntimeError(f"模型服务返回 HTTP {exc.code}: {detail or exc.reason}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RuntimeError(f"无法连接模型服务: {exc}") from exc
+        raise RuntimeError(f"无法连接模型服务：{exc}") from exc
 
     latency_ms = int((time.monotonic() - started) * 1000)
     models: list[str] = []

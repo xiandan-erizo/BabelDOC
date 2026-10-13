@@ -17,7 +17,9 @@ import threading
 import time
 from pathlib import Path
 
-from web.server.db import OUTPUT_BASE_DIR, Job, utcnow
+from web.server.db import OUTPUT_BASE_DIR
+from web.server.db import Job
+from web.server.db import utcnow
 
 logger = logging.getLogger(__name__)
 

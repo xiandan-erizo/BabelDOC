@@ -190,7 +190,7 @@ def test_get_job_and_list(api):
     assert resp.status_code == 404
 
 
-def test_delete_job_removes_record_and_files(api, tmp_path):
+def test_delete_job_removes_record_and_files(api):
     client, web_db, _main, _fm = api
     job_id = upload(client).json()["job_id"]
     row = web_db.Job.get(web_db.Job.job_id == job_id)
@@ -293,7 +293,7 @@ def test_download_filename_keeps_original_stem(api, tmp_path):
 # ---------------------------------------------------------------- retention
 
 
-def test_retention_cleanup_removes_old_terminal_jobs(api, tmp_path):
+def test_retention_cleanup_removes_old_terminal_jobs(api):
     from web.server import retention
 
     client, web_db, _m, _fm = api
@@ -417,7 +417,7 @@ def test_models_endpoint_lists_and_sorts(api):
 # ---------------------------------------------------------------- migration
 
 
-def test_schema_migration_adds_missing_columns(api, tmp_path):
+def test_schema_migration_adds_missing_columns(api):
     client, web_db, _m, _fm = api
     db_path = str(web_db.db.database)
 
@@ -445,7 +445,7 @@ def test_schema_migration_adds_missing_columns(api, tmp_path):
     assert row.default_watermark_mode == "watermarked"
 
 
-def test_created_job_gets_file_name_column_via_migration(api, tmp_path):
+def test_created_job_gets_file_name_column_via_migration(api):
     """Simulate a legacy DB (no file_name) then insert through the model —
     the migrated schema must accept it."""
     client, web_db, _m, _fm = api
@@ -456,7 +456,7 @@ def test_created_job_gets_file_name_column_via_migration(api, tmp_path):
         lang_out="zh",
         openai_model="gpt-test",
         qps=4,
-        file_path="/tmp/x.pdf",
+        file_path="x.pdf",
         created_at=dt.datetime(2025, 1, 1),
         updated_at=dt.datetime(2025, 1, 1),
     )
