@@ -316,15 +316,15 @@ def retry_job(job_id: str):
 _KIND_SUFFIX = {
     "mono": "单语",
     "dual": "双语",
-    "mono_no_wm": "单语-无水印",
-    "dual_no_wm": "双语-无水印",
+    "mono_no_wm": "单语 - 无水印",
+    "dual_no_wm": "双语 - 无水印",
     "glossary": "术语表",
 }
 
 
 def _download_filename(row: Job, kind: str) -> str:
     """Download name based on the original upload name, e.g.
-    ``2506.05301v2.双语-无水印.pdf`` (falls back to the job id)."""
+    ``2506.05301v2.双语 - 无水印.pdf`` (falls back to the job id)."""
     stem = Path(row.file_name).stem if row.file_name else ""
     stem = stem.strip() or row.job_id
     suffix = _KIND_SUFFIX.get(kind, kind)
@@ -441,7 +441,7 @@ def _fetch_models_from_provider(
             detail = ""
         raise RuntimeError(f"模型服务返回 HTTP {exc.code}: {detail or exc.reason}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RuntimeError(f"无法连接模型服务: {exc}") from exc
+        raise RuntimeError(f"无法连接模型服务：{exc}") from exc
 
     latency_ms = int((time.monotonic() - started) * 1000)
     models: list[str] = []

@@ -158,7 +158,7 @@ class WorkerManager:
                     popen = launch_translate_worker(job_id, self._project_dir)
                 except Exception as exc:
                     logger.exception("failed to launch worker for job %s", job_id)
-                    self._mark_error(job_id, f"启动翻译进程失败: {exc}")
+                    self._mark_error(job_id, f"启动翻译进程失败：{exc}")
                     continue
                 self._running[job_id] = (popen, time.monotonic(), None)
                 self._mark_running(job_id)
